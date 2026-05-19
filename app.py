@@ -40,10 +40,11 @@ def calculate_chart(
 
     results = {}
 
-for name, planet in planets.items():
-    try:
-        results[name] = swe.calc_ut(jd, planet)[0][0]
-    except Exception as e:
-        results[name] = f"ERROR: {str(e)}"
+    for name, planet in planets.items():
+        try:
+            position, _flags = swe.calc_ut(jd, planet)
+            results[name] = position[0]
+        except Exception as e:
+            results[name] = f"ERROR: {str(e)}"
 
-return results
+    return results
