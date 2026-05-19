@@ -9,7 +9,12 @@ EPHE_FILES = ("sepl_18.se1", "semo_18.se1", "seas_18.se1")
 os.environ["SE_EPHE_PATH"] = str(EPHE_PATH)
 swe.set_ephe_path(str(EPHE_PATH))
 
-app = FastAPI()
+app = FastAPI(
+    title="Astromeg Oracle Swiss Ephemeris API",
+    servers=[
+        {"url": "https://astromeg-oracle-api.onrender.com"},
+    ],
+)
 
 @app.get("/")
 def home():
