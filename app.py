@@ -2,14 +2,16 @@ from datetime import datetime
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from geopy.exc import GeocoderServiceError, GeocoderTimedOut
-from geopy.geocoders import Nominatim
+import json
 import os
 from pathlib import Path
 from pydantic import BaseModel, Field
 import swisseph as swe
-from timezonefinder import TimezoneFinder
 from typing import Annotated, Literal
+from urllib.error import URLError
+from urllib.parse import urlencode
+from urllib.request import Request as UrlRequest
+from urllib.request import urlopen
 from zoneinfo import ZoneInfo
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -17,8 +19,7 @@ EPHE_PATH = BASE_DIR / "ephe"
 EPHE_FILES = ("sepl_18.se1", "semo_18.se1", "seas_18.se1")
 os.environ["SE_EPHE_PATH"] = str(EPHE_PATH)
 swe.set_ephe_path(str(EPHE_PATH))
-GEOCODER = Nominatim(user_agent="astromeg-oracle-api")
-TIMEZONE_FINDER = TimezoneFinder()
+USER_AGENT = "astromeg-oracle-api"
 
 
 class ErrorResponse(BaseModel):
@@ -58,6 +59,53 @@ class ChartResponse(BaseModel):
     latitude: float
     longitude: float
     timezone: float
+
+
+def geocode_birthplace(birthplace: str) -> tuple[float, float, str]:
+    query = urlencode({
+        "q": birthplace,
+        "format": "json",
+        "limit": 1,
+    })
+    request = UrlRequest(
+        f"https://nominatim.openstreetmap.org/search?{query}",
+        headers={"User-Agent": USER_AGENT},
+    )
+
+    try:
+        with urlopen(request, timeout=10) as response:
+            matches = json.load(response)
+    except (OSError, URLError, TimeoutError) as e:
+        raise HTTPException(status_code=502, detail=f"Geocoder unavailable: {e}") from e
+
+    if not matches:
+        raise HTTPException(status_code=400, detail=f"Could not geocode birthplace: {birthplace}")
+
+    match = matches[0]
+    return float(match["lat"]), float(match["lon"]), match.get("display_name", birthplace)
+
+
+def resolve_timezone_name(latitude: float, longitude: float) -> str:
+    query = urlencode({
+        "latitude": latitude,
+        "longitude": longitude,
+    })
+    request = UrlRequest(
+        f"https://timeapi.io/api/TimeZone/coordinate?{query}",
+        headers={"User-Agent": USER_AGENT},
+    )
+
+    try:
+        with urlopen(request, timeout=10) as response:
+            timezone_data = json.load(response)
+    except (OSError, URLError, TimeoutError) as e:
+        raise HTTPException(status_code=502, detail=f"Timezone lookup unavailable: {e}") from e
+
+    timezone_name = timezone_data.get("timeZone")
+    if not timezone_name:
+        raise HTTPException(status_code=400, detail="Could not determine timezone for birthplace.")
+
+    return timezone_name
 
 
 app = FastAPI(
@@ -170,20 +218,8 @@ def calculate_chart(
     birthplace_resolved = None
 
     if birthplace:
-        try:
-            location = GEOCODER.geocode(birthplace, exactly_one=True, timeout=10)
-        except (GeocoderServiceError, GeocoderTimedOut) as e:
-            raise HTTPException(status_code=502, detail=f"Geocoder unavailable: {e}") from e
-
-        if location is None:
-            raise HTTPException(status_code=400, detail=f"Could not geocode birthplace: {birthplace}")
-
-        latitude = location.latitude
-        longitude = location.longitude
-        birthplace_resolved = location.address
-        timezone_name = TIMEZONE_FINDER.timezone_at(lat=latitude, lng=longitude)
-        if timezone_name is None:
-            raise HTTPException(status_code=400, detail=f"Could not determine timezone for birthplace: {birthplace}")
+        latitude, longitude, birthplace_resolved = geocode_birthplace(birthplace)
+        timezone_name = resolve_timezone_name(latitude, longitude)
 
         try:
             birth_datetime = datetime(year, month, day, hour, minute, tzinfo=ZoneInfo(timezone_name))
