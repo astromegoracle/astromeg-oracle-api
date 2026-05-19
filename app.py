@@ -1,6 +1,9 @@
 from fastapi import FastAPI
 import swisseph as swe
 
+EPHE_PATH = "ephe"
+swe.set_ephe_path(EPHE_PATH)
+
 app = FastAPI()
 
 @app.get("/")

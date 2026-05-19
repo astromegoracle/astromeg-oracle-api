@@ -1,5 +1,5 @@
 import swisseph as swe
-swe.set_ephe_path("/Users/megsanchez/swisseph")
+swe.set_ephe_path("ephe")
 # ----------------------------
 # USER INPUT
 # ----------------------------
