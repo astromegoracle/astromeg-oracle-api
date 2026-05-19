@@ -3,8 +3,6 @@ import swisseph as swe
 
 app = FastAPI()
 
-swe.set_ephe_path("/Users/megsanchez/swisseph")
-
 @app.get("/")
 def home():
     return {"status": "Astromeg Oracle API Running"}
