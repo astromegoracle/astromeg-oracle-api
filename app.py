@@ -1,9 +1,11 @@
 from fastapi import FastAPI
+import os
 from pathlib import Path
 import swisseph as swe
 
 BASE_DIR = Path(__file__).resolve().parent
 EPHE_PATH = BASE_DIR / "ephe"
+EPHE_FILES = ("sepl_18.se1", "semo_18.se1", "seas_18.se1")
 swe.set_ephe_path(str(EPHE_PATH))
 
 app = FastAPI()
@@ -11,6 +13,18 @@ app = FastAPI()
 @app.get("/")
 def home():
     return {"status": "Astromeg Oracle API Running"}
+
+@app.get("/ephe-status")
+def ephe_status():
+    return {
+        "cwd": os.getcwd(),
+        "base_dir": str(BASE_DIR),
+        "ephe_path": str(EPHE_PATH),
+        "files": {
+            filename: (EPHE_PATH / filename).is_file()
+            for filename in EPHE_FILES
+        },
+    }
 
 @app.get("/chart")
 def calculate_chart(
