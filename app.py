@@ -1,8 +1,10 @@
 from fastapi import FastAPI
+from pathlib import Path
 import swisseph as swe
 
-EPHE_PATH = "ephe"
-swe.set_ephe_path(EPHE_PATH)
+BASE_DIR = Path(__file__).resolve().parent
+EPHE_PATH = BASE_DIR / "ephe"
+swe.set_ephe_path(str(EPHE_PATH))
 
 app = FastAPI()
 
