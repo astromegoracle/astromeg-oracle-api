@@ -1,8 +1,11 @@
 from pathlib import Path
+import os
 import swisseph as swe
 
 BASE_DIR = Path(__file__).resolve().parent
-swe.set_ephe_path(str(BASE_DIR / "ephe"))
+EPHE_PATH = BASE_DIR / "ephe"
+os.environ["SE_EPHE_PATH"] = str(EPHE_PATH)
+swe.set_ephe_path(str(EPHE_PATH))
 # ----------------------------
 # USER INPUT
 # ----------------------------
