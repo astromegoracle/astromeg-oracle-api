@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 import swisseph as swe
@@ -145,6 +146,116 @@ class PlaceResolution(BaseModel):
     latitude: float
     longitude: float
     timezone_name: str
+
+
+CHART_SUCCESS_SCHEMA = {
+    "type": "object",
+    "required": ["status", "success", "message", "birth_data", "placements", "houses", "aspects"],
+    "properties": {
+        "status": {
+            "type": "string",
+            "description": "The calculation status. Successful chart responses always use success.",
+            "example": "success",
+        },
+        "success": {
+            "type": "boolean",
+            "description": "True when Swiss Ephemeris calculated the chart successfully.",
+            "example": True,
+        },
+        "message": {
+            "type": "string",
+            "description": "Human-readable result summary.",
+            "example": "Chart calculated successfully",
+        },
+        "birth_data": {
+            "type": "object",
+            "required": [
+                "year",
+                "month",
+                "day",
+                "hour",
+                "minute",
+                "birthplace",
+                "resolved_place",
+                "timezone",
+                "latitude",
+                "longitude",
+            ],
+            "properties": {
+                "year": {"type": "integer", "example": 1972},
+                "month": {"type": "integer", "example": 7},
+                "day": {"type": "integer", "example": 31},
+                "hour": {"type": "integer", "example": 22},
+                "minute": {"type": "integer", "example": 50},
+                "birthplace": {"type": "string", "example": "Quezon City, Philippines"},
+                "resolved_place": {
+                    "type": "string",
+                    "example": "Quezon City, Eastern Manila District, Metropolitan Manila, Philippines",
+                },
+                "timezone": {"type": "string", "example": "Asia/Manila"},
+                "timezone_offset": {"type": "number", "format": "float", "example": 8.0},
+                "latitude": {"type": "number", "format": "float", "example": 14.676},
+                "longitude": {"type": "number", "format": "float", "example": 121.0437},
+                "zodiac": {"type": "string", "example": "Tropical"},
+                "house_system": {"type": "string", "example": "Placidus"},
+            },
+        },
+        "placements": {
+            "type": "array",
+            "description": "Top-level Swiss Ephemeris planetary and point placements.",
+            "items": {
+                "type": "object",
+                "required": ["body", "sign", "degree", "house"],
+                "properties": {
+                    "body": {"type": "string", "example": "Sun"},
+                    "sign": {"type": "string", "example": "Leo"},
+                    "degree": {"type": "number", "format": "float", "example": 8.470462317064971},
+                    "absolute_degree": {"type": "number", "format": "float", "example": 128.47046231706497},
+                    "house": {"type": "integer", "example": 4},
+                },
+            },
+        },
+        "houses": {
+            "type": "array",
+            "description": "Placidus house cusps.",
+            "items": {
+                "type": "object",
+                "required": ["house", "sign", "degree", "absolute_degree"],
+                "properties": {
+                    "house": {"type": "integer", "example": 1},
+                    "sign": {"type": "string", "example": "Aries"},
+                    "degree": {"type": "number", "format": "float", "example": 27.667965448271975},
+                    "absolute_degree": {"type": "number", "format": "float", "example": 27.667965448271975},
+                },
+            },
+        },
+        "aspects": {
+            "type": "array",
+            "description": "Calculated aspects. Currently returned as an empty array.",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "body_a": {"type": "string", "example": "Sun"},
+                    "body_b": {"type": "string", "example": "Moon"},
+                    "aspect": {"type": "string", "example": "Trine"},
+                    "orb": {"type": "number", "format": "float", "example": 2.4},
+                },
+            },
+        },
+    },
+}
+
+
+ERROR_SCHEMA = {
+    "type": "object",
+    "required": ["status", "success", "message", "details"],
+    "properties": {
+        "status": {"type": "string", "example": "error"},
+        "success": {"type": "boolean", "example": False},
+        "message": {"type": "string", "example": "Invalid request parameters."},
+        "details": {"type": "string", "example": "birthplace is required"},
+    },
+}
 
 
 COMMON_PLACE_CACHE: dict[str, PlaceResolution] = {
@@ -473,7 +584,108 @@ app = FastAPI(
     title="Astromeg Oracle Swiss Ephemeris API",
     version="1.0.0",
     servers=[{"url": "https://astromeg-oracle-api.onrender.com"}],
+    openapi_version="3.0.3",
 )
+
+
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+
+    schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=(
+            "Action schema for calculating tropical Placidus natal charts with Swiss Ephemeris. "
+            "Use /chart with the required birth date, birth time, and birthplace query parameters."
+        ),
+        routes=app.routes,
+        openapi_version="3.0.3",
+        servers=[{"url": "https://astromeg-oracle-api.onrender.com"}],
+    )
+
+    chart_operation = schema["paths"]["/chart"]["get"]
+    chart_operation["operationId"] = "calculate_chart"
+    chart_operation["summary"] = "Calculate natal chart"
+    chart_operation["description"] = (
+        "Calculate a tropical natal chart with Placidus houses using Swiss Ephemeris only. "
+        "Birthplace is geocoded internally and timezone is resolved automatically."
+    )
+    chart_operation["parameters"] = [
+        {
+            "name": "year",
+            "in": "query",
+            "required": True,
+            "schema": {"type": "integer", "example": 1972},
+            "description": "Birth year, for example 1972.",
+        },
+        {
+            "name": "month",
+            "in": "query",
+            "required": True,
+            "schema": {"type": "integer", "example": 7},
+            "description": "Birth month from 1 to 12.",
+        },
+        {
+            "name": "day",
+            "in": "query",
+            "required": True,
+            "schema": {"type": "integer", "example": 31},
+            "description": "Birth day of month.",
+        },
+        {
+            "name": "hour",
+            "in": "query",
+            "required": True,
+            "schema": {"type": "integer", "example": 22},
+            "description": "Birth hour in 24-hour local time.",
+        },
+        {
+            "name": "minute",
+            "in": "query",
+            "required": True,
+            "schema": {"type": "integer", "example": 50},
+            "description": "Birth minute in local time.",
+        },
+        {
+            "name": "birthplace",
+            "in": "query",
+            "required": True,
+            "schema": {"type": "string", "example": "Quezon City, Philippines"},
+            "description": "Birthplace to resolve, for example Quezon City, Philippines.",
+        },
+    ]
+    chart_operation["responses"] = {
+        "200": {
+            "description": "Chart calculated successfully.",
+            "content": {"application/json": {"schema": CHART_SUCCESS_SCHEMA}},
+        },
+        "400": {
+            "description": "Invalid birth data or unresolved birthplace.",
+            "content": {"application/json": {"schema": ERROR_SCHEMA}},
+        },
+        "422": {
+            "description": "Missing or invalid query parameter.",
+            "content": {"application/json": {"schema": ERROR_SCHEMA}},
+        },
+        "500": {
+            "description": "Unexpected calculation failure.",
+            "content": {"application/json": {"schema": ERROR_SCHEMA}},
+        },
+        "502": {
+            "description": "External lookup unavailable.",
+            "content": {"application/json": {"schema": ERROR_SCHEMA}},
+        },
+    }
+
+    schema["openapi"] = "3.0.3"
+    schema["paths"] = {"/chart": {"get": chart_operation}}
+    schema["components"] = {"schemas": {}}
+    app.openapi_schema = schema
+    return app.openapi_schema
+
+
+app.openapi = custom_openapi
 
 
 @app.exception_handler(HTTPException)
@@ -535,11 +747,18 @@ def ephe_status():
 @app.get(
     "/chart",
     response_model=ChartResponse,
+    operation_id="calculate_chart",
     description=(
         "Calculate a tropical natal chart with Placidus houses using Swiss Ephemeris. "
         "Required query parameters are year, month, day, hour, minute, and birthplace."
     ),
-    responses={400: {"model": ErrorResponse}, 422: {"model": ErrorResponse}, 500: {"model": ErrorResponse}, 502: {"model": ErrorResponse}},
+    responses={
+        200: {"description": "Chart calculated successfully.", "content": {"application/json": {"schema": CHART_SUCCESS_SCHEMA}}},
+        400: {"description": "Invalid birth data or unresolved birthplace.", "content": {"application/json": {"schema": ERROR_SCHEMA}}},
+        422: {"description": "Missing or invalid query parameter.", "content": {"application/json": {"schema": ERROR_SCHEMA}}},
+        500: {"description": "Unexpected calculation failure.", "content": {"application/json": {"schema": ERROR_SCHEMA}}},
+        502: {"description": "External lookup unavailable.", "content": {"application/json": {"schema": ERROR_SCHEMA}}},
+    },
 )
 def calculate_chart(
     year: int,
