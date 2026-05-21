@@ -148,112 +148,95 @@ class PlaceResolution(BaseModel):
     timezone_name: str
 
 
-CHART_SUCCESS_SCHEMA = {
-    "type": "object",
-    "required": ["status", "success", "message", "birth_data", "placements", "houses", "aspects"],
-    "properties": {
-        "status": {
-            "type": "string",
-            "description": "The calculation status. Successful chart responses always use success.",
-            "example": "success",
-        },
-        "success": {
-            "type": "boolean",
-            "description": "True when Swiss Ephemeris calculated the chart successfully.",
-            "example": True,
-        },
-        "message": {
-            "type": "string",
-            "description": "Human-readable result summary.",
-            "example": "Chart calculated successfully",
-        },
-        "birth_data": {
-            "type": "object",
-            "required": [
-                "year",
-                "month",
-                "day",
-                "hour",
-                "minute",
-                "birthplace",
-                "resolved_place",
-                "timezone",
-                "latitude",
-                "longitude",
-            ],
-            "properties": {
-                "year": {"type": "integer", "example": 1972},
-                "month": {"type": "integer", "example": 7},
-                "day": {"type": "integer", "example": 31},
-                "hour": {"type": "integer", "example": 22},
-                "minute": {"type": "integer", "example": 50},
-                "birthplace": {"type": "string", "example": "Quezon City, Philippines"},
-                "resolved_place": {
-                    "type": "string",
-                    "example": "Quezon City, Eastern Manila District, Metropolitan Manila, Philippines",
-                },
-                "timezone": {"type": "string", "example": "Asia/Manila"},
-                "timezone_offset": {"type": "number", "format": "float", "example": 8.0},
-                "latitude": {"type": "number", "format": "float", "example": 14.676},
-                "longitude": {"type": "number", "format": "float", "example": 121.0437},
-                "zodiac": {"type": "string", "example": "Tropical"},
-                "house_system": {"type": "string", "example": "Placidus"},
+CHART_SUCCESS_SCHEMA = {"$ref": "#/components/schemas/ChartResponse"}
+ERROR_SCHEMA = {"$ref": "#/components/schemas/ErrorResponse"}
+
+ACTION_COMPONENT_SCHEMAS = {
+    "ChartResponse": {
+        "type": "object",
+        "additionalProperties": True,
+        "description": "Successful Swiss Ephemeris chart calculation response.",
+        "properties": {
+            "status": {"type": "string", "description": "Successful chart responses use success."},
+            "success": {"type": "boolean", "description": "True when the chart calculation succeeded."},
+            "message": {"type": "string", "description": "Human-readable result summary."},
+            "birth_data": {"$ref": "#/components/schemas/BirthData"},
+            "placements": {
+                "type": "array",
+                "description": "Top-level planetary and point placements.",
+                "items": {"$ref": "#/components/schemas/Placement"},
             },
-        },
-        "placements": {
-            "type": "array",
-            "description": "Top-level Swiss Ephemeris planetary and point placements.",
-            "items": {
-                "type": "object",
-                "required": ["body", "sign", "degree", "house"],
-                "properties": {
-                    "body": {"type": "string", "example": "Sun"},
-                    "sign": {"type": "string", "example": "Leo"},
-                    "degree": {"type": "number", "format": "float", "example": 8.470462317064971},
-                    "absolute_degree": {"type": "number", "format": "float", "example": 128.47046231706497},
-                    "house": {"type": "integer", "example": 4},
-                },
+            "houses": {
+                "type": "array",
+                "description": "Placidus house cusps.",
+                "items": {"$ref": "#/components/schemas/HouseCusp"},
             },
-        },
-        "houses": {
-            "type": "array",
-            "description": "Placidus house cusps.",
-            "items": {
-                "type": "object",
-                "required": ["house", "sign", "degree", "absolute_degree"],
-                "properties": {
-                    "house": {"type": "integer", "example": 1},
-                    "sign": {"type": "string", "example": "Aries"},
-                    "degree": {"type": "number", "format": "float", "example": 27.667965448271975},
-                    "absolute_degree": {"type": "number", "format": "float", "example": 27.667965448271975},
-                },
-            },
-        },
-        "aspects": {
-            "type": "array",
-            "description": "Calculated aspects. Currently returned as an empty array.",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "body_a": {"type": "string", "example": "Sun"},
-                    "body_b": {"type": "string", "example": "Moon"},
-                    "aspect": {"type": "string", "example": "Trine"},
-                    "orb": {"type": "number", "format": "float", "example": 2.4},
-                },
+            "aspects": {
+                "type": "array",
+                "description": "Calculated aspects. Currently an empty array.",
+                "items": {"$ref": "#/components/schemas/Aspect"},
             },
         },
     },
-}
-
-
-ERROR_SCHEMA = {
-    "type": "object",
-    "required": ["status", "success", "message", "details"],
-    "properties": {
-        "status": {"type": "string", "example": "error"},
-        "success": {"type": "boolean", "example": False},
-        "message": {"type": "string", "example": "Invalid request parameters."},
-        "details": {"type": "string", "example": "birthplace is required"},
+    "BirthData": {
+        "type": "object",
+        "additionalProperties": True,
+        "properties": {
+            "year": {"type": "integer"},
+            "month": {"type": "integer"},
+            "day": {"type": "integer"},
+            "hour": {"type": "integer"},
+            "minute": {"type": "integer"},
+            "birthplace": {"type": "string"},
+            "resolved_place": {"type": "string"},
+            "latitude": {"type": "number"},
+            "longitude": {"type": "number"},
+            "timezone": {"type": "string"},
+            "timezone_offset": {"type": "number"},
+            "zodiac": {"type": "string"},
+            "house_system": {"type": "string"},
+        },
+    },
+    "Placement": {
+        "type": "object",
+        "additionalProperties": True,
+        "properties": {
+            "body": {"type": "string"},
+            "sign": {"type": "string"},
+            "degree": {"type": "number"},
+            "absolute_degree": {"type": "number"},
+            "house": {"type": "integer"},
+        },
+    },
+    "HouseCusp": {
+        "type": "object",
+        "additionalProperties": True,
+        "properties": {
+            "house": {"type": "integer"},
+            "sign": {"type": "string"},
+            "degree": {"type": "number"},
+            "absolute_degree": {"type": "number"},
+        },
+    },
+    "Aspect": {
+        "type": "object",
+        "additionalProperties": True,
+        "properties": {
+            "body_a": {"type": "string"},
+            "body_b": {"type": "string"},
+            "aspect": {"type": "string"},
+            "orb": {"type": "number"},
+        },
+    },
+    "ErrorResponse": {
+        "type": "object",
+        "additionalProperties": True,
+        "properties": {
+            "status": {"type": "string"},
+            "success": {"type": "boolean"},
+            "message": {"type": "string"},
+            "details": {"type": "string"},
+        },
     },
 }
 
@@ -680,7 +663,7 @@ def custom_openapi():
 
     schema["openapi"] = "3.1.0"
     schema["paths"] = {"/chart": {"get": chart_operation}}
-    schema["components"] = {"schemas": {}}
+    schema["components"] = {"schemas": ACTION_COMPONENT_SCHEMAS}
     app.openapi_schema = schema
     return app.openapi_schema
 
