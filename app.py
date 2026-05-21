@@ -424,8 +424,7 @@ def ephe_status():
     response_model=ChartResponse,
     description=(
         "Calculate a tropical natal chart with Placidus houses using Swiss Ephemeris. "
-        "Provide either year, month, day, hour, minute, timezone, latitude, longitude "
-        "or year, month, day, hour, minute, birthplace."
+        "Required query parameters are year, month, day, hour, minute, and birthplace."
     ),
     responses={400: {"model": ErrorResponse}, 422: {"model": ErrorResponse}, 500: {"model": ErrorResponse}, 502: {"model": ErrorResponse}},
 )
@@ -435,39 +434,13 @@ def calculate_chart(
     day: int,
     hour: int,
     minute: int,
-    timezone: Annotated[
-        float | None,
-        Query(description="UTC offset in hours. Required with latitude and longitude. Omit when using birthplace."),
-    ] = None,
-    latitude: Annotated[
-        float | None,
-        Query(description="Birth latitude in decimal degrees. Required with longitude and timezone unless birthplace is provided."),
-    ] = None,
-    longitude: Annotated[
-        float | None,
-        Query(description="Birth longitude in decimal degrees. Required with latitude and timezone unless birthplace is provided."),
-    ] = None,
     birthplace: Annotated[
-        str | None,
-        Query(description="Birthplace to geocode. When provided, latitude, longitude, and timezone are resolved automatically."),
-    ] = None,
+        str,
+        Query(description="Birthplace to geocode, for example: Quezon City, Philippines."),
+    ],
 ):
-    birthplace_resolved = None
-
-    if birthplace:
-        resolved = resolve_birthplace(birthplace)
-        latitude = resolved.latitude
-        longitude = resolved.longitude
-        birthplace_resolved = resolved.birthplace_resolved
-        timezone = timezone_offset_hours(year, month, day, hour, minute, resolved.timezone_name)
-    elif timezone is None or latitude is None or longitude is None:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Provide either year, month, day, hour, minute, timezone, latitude, longitude "
-                "or year, month, day, hour, minute, birthplace."
-            ),
-        )
+    resolved = resolve_birthplace(birthplace)
+    timezone = timezone_offset_hours(year, month, day, hour, minute, resolved.timezone_name)
 
     return build_chart_response(
         year=year,
@@ -475,10 +448,10 @@ def calculate_chart(
         day=day,
         hour=hour,
         minute=minute,
-        latitude=latitude,
-        longitude=longitude,
+        latitude=resolved.latitude,
+        longitude=resolved.longitude,
         timezone=timezone,
-        birthplace_resolved=birthplace_resolved,
+        birthplace_resolved=resolved.birthplace_resolved,
     )
 
 
