@@ -38,13 +38,51 @@ swe.set_ephe_path(str(EPHE_PATH))
 
 class ErrorResponse(BaseModel):
     status: Literal["error"]
+    success: Literal[False]
     message: str
     details: str
 
 
+class HouseCuspResponse(BaseModel):
+    house: int
+    sign: str
+    degree: float
+    absolute_degree: float
+
+
 class HousesResponse(BaseModel):
     system: Literal["Placidus"]
-    cusps: dict[str, float]
+    cusps: list[HouseCuspResponse]
+
+
+class BirthDataResponse(BaseModel):
+    year: int
+    month: int
+    day: int
+    hour: int
+    minute: int
+    birthplace: str
+    birthplace_resolved: str
+    latitude: float
+    longitude: float
+    timezone: float
+    zodiac: Literal["Tropical"]
+    house_system: Literal["Placidus"]
+
+
+class PlacementResponse(BaseModel):
+    body: str
+    sign: str
+    degree: float
+    absolute_degree: float
+    house: int
+
+
+class AspectResponse(BaseModel):
+    body_a: str
+    body_b: str
+    aspect: str
+    orb: float
 
 
 class PlanetsResponse(BaseModel):
@@ -65,8 +103,13 @@ class PlanetsResponse(BaseModel):
 
 class ChartResponse(BaseModel):
     status: Literal["success"]
+    success: Literal[True]
+    message: str
+    birth_data: BirthDataResponse
+    placements: list[PlacementResponse]
+    houses: list[HouseCuspResponse]
+    aspects: list[AspectResponse]
     planets: PlanetsResponse
-    houses: HousesResponse
     ascendant: float
     midheaven: float
     birthplace_resolved: str | None
@@ -183,6 +226,20 @@ COMMON_PLACE_CACHE: dict[str, PlaceResolution] = {
     ),
 }
 PLACE_CACHE: dict[str, PlaceResolution] = dict(COMMON_PLACE_CACHE)
+SIGNS = (
+    "Aries",
+    "Taurus",
+    "Gemini",
+    "Cancer",
+    "Leo",
+    "Virgo",
+    "Libra",
+    "Scorpio",
+    "Sagittarius",
+    "Capricorn",
+    "Aquarius",
+    "Pisces",
+)
 
 PLANETS = {
     "Sun": swe.SUN,
@@ -214,6 +271,29 @@ TEST_BIRTHPLACES = (
 
 def normalize_place(value: str) -> str:
     return " ".join(value.casefold().replace(",", " , ").split()).replace(" ,", ",")
+
+
+def zodiac_sign(absolute_degree: float) -> str:
+    return SIGNS[int((absolute_degree % 360) // 30)]
+
+
+def zodiac_degree(absolute_degree: float) -> float:
+    return absolute_degree % 30
+
+
+def house_for_degree(absolute_degree: float, cusps: list[float]) -> int:
+    point = absolute_degree % 360
+    for index, start in enumerate(cusps):
+        end = cusps[(index + 1) % 12]
+        adjusted_end = end
+        adjusted_point = point
+        if adjusted_end <= start:
+            adjusted_end += 360
+        if adjusted_point < start:
+            adjusted_point += 360
+        if start <= adjusted_point < adjusted_end:
+            return index + 1
+    return 12
 
 
 def fetch_json(url: str, timeout: int) -> object:
@@ -315,17 +395,23 @@ def calculate_planets(jd: float) -> PlanetsResponse:
     return PlanetsResponse(**results)
 
 
-def calculate_houses(jd: float, latitude: float, longitude: float) -> tuple[HousesResponse, float, float]:
+def calculate_houses(jd: float, latitude: float, longitude: float) -> tuple[list[HouseCuspResponse], list[float], float, float]:
     try:
         cusps, ascmc = swe.houses(jd, latitude, longitude, b'P')
     except Exception as error:
         raise HTTPException(status_code=500, detail=f"Could not calculate Placidus houses: {error}") from error
 
-    houses = HousesResponse(
-        system=HOUSE_SYSTEM,
-        cusps={str(index): cusp for index, cusp in enumerate(cusps, start=1)},
-    )
-    return houses, ascmc[0], ascmc[1]
+    cusp_values = list(cusps)
+    house_cusps = [
+        HouseCuspResponse(
+            house=index,
+            sign=zodiac_sign(cusp),
+            degree=zodiac_degree(cusp),
+            absolute_degree=cusp,
+        )
+        for index, cusp in enumerate(cusp_values, start=1)
+    ]
+    return house_cusps, cusp_values, ascmc[0], ascmc[1]
 
 
 def build_chart_response(
@@ -338,18 +424,49 @@ def build_chart_response(
     longitude: float,
     timezone: float,
     birthplace_resolved: str | None,
+    birthplace: str,
 ) -> ChartResponse:
     jd = calculate_julian_day(year, month, day, hour, minute, timezone)
     planets = calculate_planets(jd)
-    houses, ascendant, midheaven = calculate_houses(jd, latitude, longitude)
+    houses, cusp_values, ascendant, midheaven = calculate_houses(jd, latitude, longitude)
+    planet_values = planets.model_dump(by_alias=True)
+    placements = [
+        PlacementResponse(
+            body=body,
+            sign=zodiac_sign(absolute_degree),
+            degree=zodiac_degree(absolute_degree),
+            absolute_degree=absolute_degree,
+            house=house_for_degree(absolute_degree, cusp_values),
+        )
+        for body, absolute_degree in planet_values.items()
+    ]
+    resolved_birthplace = birthplace_resolved or birthplace
 
     return ChartResponse(
         status="success",
-        planets=planets,
+        success=True,
+        message="Chart calculated successfully",
+        birth_data=BirthDataResponse(
+            year=year,
+            month=month,
+            day=day,
+            hour=hour,
+            minute=minute,
+            birthplace=birthplace,
+            birthplace_resolved=resolved_birthplace,
+            latitude=latitude,
+            longitude=longitude,
+            timezone=timezone,
+            zodiac=ZODIAC,
+            house_system=HOUSE_SYSTEM,
+        ),
+        placements=placements,
         houses=houses,
+        aspects=[],
+        planets=planets,
         ascendant=ascendant,
         midheaven=midheaven,
-        birthplace_resolved=birthplace_resolved,
+        birthplace_resolved=resolved_birthplace,
         latitude=latitude,
         longitude=longitude,
         timezone=timezone,
@@ -368,7 +485,7 @@ async def http_exception_handler(_request: Request, exc: HTTPException):
     logger.warning("request error status=%s detail=%s", exc.status_code, exc.detail)
     return JSONResponse(
         status_code=exc.status_code,
-        content={"status": "error", "message": str(exc.detail), "details": ""},
+        content={"status": "error", "success": False, "message": str(exc.detail), "details": ""},
     )
 
 
@@ -377,7 +494,7 @@ async def validation_exception_handler(_request: Request, exc: RequestValidation
     logger.warning("validation error details=%s", exc.errors())
     return JSONResponse(
         status_code=422,
-        content={"status": "error", "message": "Invalid request parameters.", "details": str(exc.errors())},
+        content={"status": "error", "success": False, "message": "Invalid request parameters.", "details": str(exc.errors())},
     )
 
 
@@ -386,7 +503,7 @@ async def unexpected_exception_handler(_request: Request, exc: Exception):
     logger.exception("unexpected error")
     return JSONResponse(
         status_code=500,
-        content={"status": "error", "message": "Internal server error.", "details": str(exc)},
+        content={"status": "error", "success": False, "message": "Internal server error.", "details": str(exc)},
     )
 
 
@@ -452,6 +569,7 @@ def calculate_chart(
         longitude=resolved.longitude,
         timezone=timezone,
         birthplace_resolved=resolved.birthplace_resolved,
+        birthplace=birthplace,
     )
 
 
@@ -473,6 +591,7 @@ def run_tests():
                 longitude=resolved.longitude,
                 timezone=timezone,
                 birthplace_resolved=resolved.birthplace_resolved,
+                birthplace=birthplace,
             )
             case_results.append(
                 TestCaseResult(
