@@ -107,6 +107,9 @@ class ChartResponse(BaseModel):
     status: str = "success"
     success: bool = True
     message: str = "Chart calculated successfully"
+    chart_text: str
+    placements_text: str
+    body_count: int
     birth_data: BirthDataResponse
     placements: list[PlacementResponse]
     houses: list[HouseCuspResponse]
@@ -148,8 +151,34 @@ class PlaceResolution(BaseModel):
     timezone_name: str
 
 
-CHART_SUCCESS_SCHEMA = {"$ref": "#/components/schemas/ChartResponse"}
-ERROR_SCHEMA = {"$ref": "#/components/schemas/ErrorResponse"}
+CHART_SUCCESS_SCHEMA = {
+    "type": "object",
+    "additionalProperties": True,
+    "required": ["status", "success", "message", "chart_text", "placements_text", "body_count"],
+    "properties": {
+        "status": {"type": "string", "description": "Successful chart responses use success."},
+        "success": {"type": "boolean", "description": "True when the chart calculation succeeded."},
+        "message": {"type": "string", "description": "Human-readable result summary."},
+        "chart_text": {"type": "string", "description": "Plain-text verified chart summary for GPT Actions."},
+        "placements_text": {"type": "string", "description": "Plain-text verified planetary placements."},
+        "body_count": {"type": "integer", "description": "Number of calculated bodies in placements."},
+        "birth_data": {"type": "object", "additionalProperties": True},
+        "placements": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+        "houses": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+        "aspects": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+    },
+}
+ERROR_SCHEMA = {
+    "type": "object",
+    "additionalProperties": True,
+    "required": ["status", "success", "message", "details"],
+    "properties": {
+        "status": {"type": "string"},
+        "success": {"type": "boolean"},
+        "message": {"type": "string"},
+        "details": {"type": "string"},
+    },
+}
 
 ACTION_COMPONENT_SCHEMAS = {
     "ChartResponse": {
@@ -160,6 +189,9 @@ ACTION_COMPONENT_SCHEMAS = {
             "status": {"type": "string", "description": "Successful chart responses use success."},
             "success": {"type": "boolean", "description": "True when the chart calculation succeeded."},
             "message": {"type": "string", "description": "Human-readable result summary."},
+            "chart_text": {"type": "string", "description": "Plain-text verified chart summary for GPT Actions."},
+            "placements_text": {"type": "string", "description": "Plain-text verified planetary placements."},
+            "body_count": {"type": "integer", "description": "Number of calculated bodies in placements."},
             "birth_data": {"$ref": "#/components/schemas/BirthData"},
             "placements": {
                 "type": "array",
@@ -509,6 +541,13 @@ def calculate_houses(jd: float, latitude: float, longitude: float) -> tuple[list
     return house_cusps, cusp_values, ascmc[0], ascmc[1]
 
 
+def format_placements_text(placements: list[PlacementResponse]) -> str:
+    return "; ".join(
+        f"{placement.body}: {placement.sign} {placement.degree:.2f} degrees, house {placement.house}"
+        for placement in placements
+    )
+
+
 def build_chart_response(
     year: int,
     month: int,
@@ -551,11 +590,20 @@ def build_chart_response(
         zodiac=ZODIAC,
         house_system=HOUSE_SYSTEM,
     )
+    placements_text = format_placements_text(placements)
+    chart_text = (
+        f"Chart calculated successfully for {birthplace}. "
+        f"Resolved place: {resolved_place}. Timezone: {timezone_name}. "
+        f"Verified Swiss Ephemeris placements: {placements_text}."
+    )
 
     return ChartResponse(
         status="success",
         success=True,
         message="Chart calculated successfully",
+        chart_text=chart_text,
+        placements_text=placements_text,
+        body_count=len(placements),
         birth_data=birth_data,
         placements=placements,
         houses=houses,
