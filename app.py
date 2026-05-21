@@ -584,7 +584,7 @@ app = FastAPI(
     title="Astromeg Oracle Swiss Ephemeris API",
     version="1.0.0",
     servers=[{"url": "https://astromeg-oracle-api.onrender.com"}],
-    openapi_version="3.0.3",
+    openapi_version="3.1.0",
 )
 
 
@@ -600,7 +600,7 @@ def custom_openapi():
             "Use /chart with the required birth date, birth time, and birthplace query parameters."
         ),
         routes=app.routes,
-        openapi_version="3.0.3",
+        openapi_version="3.1.0",
         servers=[{"url": "https://astromeg-oracle-api.onrender.com"}],
     )
 
@@ -678,7 +678,7 @@ def custom_openapi():
         },
     }
 
-    schema["openapi"] = "3.0.3"
+    schema["openapi"] = "3.1.0"
     schema["paths"] = {"/chart": {"get": chart_operation}}
     schema["components"] = {"schemas": {}}
     app.openapi_schema = schema
