@@ -4,7 +4,7 @@ import logging
 import os
 from pathlib import Path
 import time
-from typing import Annotated, Literal
+from typing import Annotated
 from urllib.error import URLError
 from urllib.parse import urlencode
 from urllib.request import Request as UrlRequest
@@ -37,10 +37,10 @@ swe.set_ephe_path(str(EPHE_PATH))
 
 
 class ErrorResponse(BaseModel):
-    status: Literal["error"]
-    success: Literal[False]
+    status: str = "error"
+    success: bool = False
     message: str
-    details: str
+    details: str = ""
 
 
 class HouseCuspResponse(BaseModel):
@@ -51,7 +51,7 @@ class HouseCuspResponse(BaseModel):
 
 
 class HousesResponse(BaseModel):
-    system: Literal["Placidus"]
+    system: str = "Placidus"
     cusps: list[HouseCuspResponse]
 
 
@@ -62,12 +62,13 @@ class BirthDataResponse(BaseModel):
     hour: int
     minute: int
     birthplace: str
-    birthplace_resolved: str
+    resolved_place: str
     latitude: float
     longitude: float
-    timezone: float
-    zodiac: Literal["Tropical"]
-    house_system: Literal["Placidus"]
+    timezone: str
+    timezone_offset: float
+    zodiac: str = "Tropical"
+    house_system: str = "Placidus"
 
 
 class PlacementResponse(BaseModel):
@@ -102,27 +103,20 @@ class PlanetsResponse(BaseModel):
 
 
 class ChartResponse(BaseModel):
-    status: Literal["success"]
-    success: Literal[True]
-    message: str
+    status: str = "success"
+    success: bool = True
+    message: str = "Chart calculated successfully"
     birth_data: BirthDataResponse
     placements: list[PlacementResponse]
     houses: list[HouseCuspResponse]
-    aspects: list[AspectResponse]
-    planets: PlanetsResponse
-    ascendant: float
-    midheaven: float
-    birthplace_resolved: str | None
-    latitude: float
-    longitude: float
-    timezone: float
+    aspects: list[AspectResponse] = Field(default_factory=list)
 
 
 class HealthResponse(BaseModel):
-    status: Literal["ok"]
-    engine: Literal["Swiss Ephemeris"]
-    zodiac: Literal["Tropical"]
-    houses: Literal["Placidus"]
+    status: str = "ok"
+    engine: str = "Swiss Ephemeris"
+    zodiac: str = "Tropical"
+    houses: str = "Placidus"
     ephe_path: str
     ephe_files: dict[str, bool]
     cache_entries: int
@@ -130,7 +124,7 @@ class HealthResponse(BaseModel):
 
 class TestCaseResult(BaseModel):
     birthplace: str
-    status: Literal["success", "error"]
+    status: str
     latitude: float | None = None
     longitude: float | None = None
     timezone: float | None = None
@@ -138,7 +132,7 @@ class TestCaseResult(BaseModel):
 
 
 class TestResponse(BaseModel):
-    status: Literal["success", "error"]
+    status: str
     total: int
     passed: int
     failed: int
@@ -166,6 +160,13 @@ COMMON_PLACE_CACHE: dict[str, PlaceResolution] = {
         birthplace_resolved="Manila, Capital District, Metro Manila, Philippines",
         latitude=14.5995,
         longitude=120.9842,
+        timezone_name="Asia/Manila",
+    ),
+    "calabanga, camarines sur, philippines": PlaceResolution(
+        query="Calabanga, Camarines Sur, Philippines",
+        birthplace_resolved="Calabanga, Camarines Sur, Bicol Region, 4405, Philippines",
+        latitude=13.7085450,
+        longitude=123.2157561,
         timezone_name="Asia/Manila",
     ),
     "new york, usa": PlaceResolution(
@@ -422,11 +423,12 @@ def build_chart_response(
     minute: int,
     latitude: float,
     longitude: float,
-    timezone: float,
-    birthplace_resolved: str | None,
+    timezone_offset: float,
+    timezone_name: str,
+    resolved_place: str,
     birthplace: str,
 ) -> ChartResponse:
-    jd = calculate_julian_day(year, month, day, hour, minute, timezone)
+    jd = calculate_julian_day(year, month, day, hour, minute, timezone_offset)
     planets = calculate_planets(jd)
     houses, cusp_values, ascendant, midheaven = calculate_houses(jd, latitude, longitude)
     planet_values = planets.model_dump(by_alias=True)
@@ -440,36 +442,30 @@ def build_chart_response(
         )
         for body, absolute_degree in planet_values.items()
     ]
-    resolved_birthplace = birthplace_resolved or birthplace
+    birth_data = BirthDataResponse(
+        year=year,
+        month=month,
+        day=day,
+        hour=hour,
+        minute=minute,
+        birthplace=birthplace,
+        resolved_place=resolved_place,
+        latitude=latitude,
+        longitude=longitude,
+        timezone=timezone_name,
+        timezone_offset=timezone_offset,
+        zodiac=ZODIAC,
+        house_system=HOUSE_SYSTEM,
+    )
 
     return ChartResponse(
         status="success",
         success=True,
         message="Chart calculated successfully",
-        birth_data=BirthDataResponse(
-            year=year,
-            month=month,
-            day=day,
-            hour=hour,
-            minute=minute,
-            birthplace=birthplace,
-            birthplace_resolved=resolved_birthplace,
-            latitude=latitude,
-            longitude=longitude,
-            timezone=timezone,
-            zodiac=ZODIAC,
-            house_system=HOUSE_SYSTEM,
-        ),
+        birth_data=birth_data,
         placements=placements,
         houses=houses,
         aspects=[],
-        planets=planets,
-        ascendant=ascendant,
-        midheaven=midheaven,
-        birthplace_resolved=resolved_birthplace,
-        latitude=latitude,
-        longitude=longitude,
-        timezone=timezone,
     )
 
 
@@ -557,7 +553,7 @@ def calculate_chart(
     ],
 ):
     resolved = resolve_birthplace(birthplace)
-    timezone = timezone_offset_hours(year, month, day, hour, minute, resolved.timezone_name)
+    timezone_offset = timezone_offset_hours(year, month, day, hour, minute, resolved.timezone_name)
 
     return build_chart_response(
         year=year,
@@ -567,8 +563,9 @@ def calculate_chart(
         minute=minute,
         latitude=resolved.latitude,
         longitude=resolved.longitude,
-        timezone=timezone,
-        birthplace_resolved=resolved.birthplace_resolved,
+        timezone_offset=timezone_offset,
+        timezone_name=resolved.timezone_name,
+        resolved_place=resolved.birthplace_resolved,
         birthplace=birthplace,
     )
 
@@ -580,7 +577,7 @@ def run_tests():
     for birthplace in TEST_BIRTHPLACES:
         try:
             resolved = resolve_birthplace(birthplace)
-            timezone = timezone_offset_hours(1972, 7, 31, 22, 50, resolved.timezone_name)
+            timezone_offset = timezone_offset_hours(1972, 7, 31, 22, 50, resolved.timezone_name)
             chart = build_chart_response(
                 year=1972,
                 month=7,
@@ -589,17 +586,18 @@ def run_tests():
                 minute=50,
                 latitude=resolved.latitude,
                 longitude=resolved.longitude,
-                timezone=timezone,
-                birthplace_resolved=resolved.birthplace_resolved,
+                timezone_offset=timezone_offset,
+                timezone_name=resolved.timezone_name,
+                resolved_place=resolved.birthplace_resolved,
                 birthplace=birthplace,
             )
             case_results.append(
                 TestCaseResult(
                     birthplace=birthplace,
                     status="success",
-                    latitude=chart.latitude,
-                    longitude=chart.longitude,
-                    timezone=chart.timezone,
+                    latitude=chart.birth_data.latitude,
+                    longitude=chart.birth_data.longitude,
+                    timezone=chart.birth_data.timezone_offset,
                 )
             )
         except Exception as error:
