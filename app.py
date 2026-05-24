@@ -155,7 +155,18 @@ class PlaceResolution(BaseModel):
 CHART_SUCCESS_SCHEMA = {
     "type": "object",
     "additionalProperties": True,
-    "required": ["status", "success", "message", "chart_text", "placements_text", "body_count"],
+    "required": [
+        "status",
+        "success",
+        "message",
+        "chart_text",
+        "placements_text",
+        "body_count",
+        "resolved_place",
+        "timezone",
+        "latitude",
+        "longitude",
+    ],
     "properties": {
         "status": {"type": "string", "description": "Successful chart responses use success."},
         "success": {"type": "boolean", "description": "True when the chart calculation succeeded."},
@@ -163,10 +174,28 @@ CHART_SUCCESS_SCHEMA = {
         "chart_text": {"type": "string", "description": "Plain-text verified chart summary for GPT Actions."},
         "placements_text": {"type": "string", "description": "Plain-text verified planetary placements."},
         "body_count": {"type": "integer", "description": "Number of calculated bodies in placements."},
-        "birth_data": {"type": "object", "additionalProperties": True},
-        "placements": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
-        "houses": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
-        "aspects": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+        "birthplace": {"type": "string"},
+        "resolved_place": {"type": "string"},
+        "timezone": {"type": "string"},
+        "timezone_offset": {"type": "number"},
+        "latitude": {"type": "number"},
+        "longitude": {"type": "number"},
+        "zodiac": {"type": "string"},
+        "house_system": {"type": "string"},
+        "sun": {"type": "string"},
+        "moon": {"type": "string"},
+        "mercury": {"type": "string"},
+        "venus": {"type": "string"},
+        "mars": {"type": "string"},
+        "jupiter": {"type": "string"},
+        "saturn": {"type": "string"},
+        "uranus": {"type": "string"},
+        "neptune": {"type": "string"},
+        "pluto": {"type": "string"},
+        "north_node": {"type": "string"},
+        "lilith": {"type": "string"},
+        "chiron": {"type": "string"},
+        "houses_text": {"type": "string"},
     },
 }
 ERROR_SCHEMA = {
@@ -193,22 +222,28 @@ ACTION_COMPONENT_SCHEMAS = {
             "chart_text": {"type": "string", "description": "Plain-text verified chart summary for GPT Actions."},
             "placements_text": {"type": "string", "description": "Plain-text verified planetary placements."},
             "body_count": {"type": "integer", "description": "Number of calculated bodies in placements."},
-            "birth_data": {"$ref": "#/components/schemas/BirthData"},
-            "placements": {
-                "type": "array",
-                "description": "Top-level planetary and point placements.",
-                "items": {"$ref": "#/components/schemas/Placement"},
-            },
-            "houses": {
-                "type": "array",
-                "description": "Placidus house cusps.",
-                "items": {"$ref": "#/components/schemas/HouseCusp"},
-            },
-            "aspects": {
-                "type": "array",
-                "description": "Calculated aspects. Currently an empty array.",
-                "items": {"$ref": "#/components/schemas/Aspect"},
-            },
+            "birthplace": {"type": "string"},
+            "resolved_place": {"type": "string"},
+            "timezone": {"type": "string"},
+            "timezone_offset": {"type": "number"},
+            "latitude": {"type": "number"},
+            "longitude": {"type": "number"},
+            "zodiac": {"type": "string"},
+            "house_system": {"type": "string"},
+            "sun": {"type": "string"},
+            "moon": {"type": "string"},
+            "mercury": {"type": "string"},
+            "venus": {"type": "string"},
+            "mars": {"type": "string"},
+            "jupiter": {"type": "string"},
+            "saturn": {"type": "string"},
+            "uranus": {"type": "string"},
+            "neptune": {"type": "string"},
+            "pluto": {"type": "string"},
+            "north_node": {"type": "string"},
+            "lilith": {"type": "string"},
+            "chiron": {"type": "string"},
+            "houses_text": {"type": "string"},
         },
     },
     "BirthData": {
@@ -549,6 +584,44 @@ def format_placements_text(placements: list[PlacementResponse]) -> str:
     )
 
 
+def format_houses_text(houses: list[HouseCuspResponse]) -> str:
+    return "; ".join(
+        f"House {house.house}: {house.sign} {house.degree:.2f} degrees"
+        for house in houses
+    )
+
+
+def placement_field_name(body: str) -> str:
+    return body.casefold().replace(" ", "_")
+
+
+def placement_summary(placement: PlacementResponse) -> str:
+    return f"{placement.sign} {placement.degree:.2f} degrees, house {placement.house}"
+
+
+def build_action_chart_payload(chart: ChartResponse) -> dict:
+    payload = {
+        "status": chart.status,
+        "success": chart.success,
+        "message": chart.message,
+        "chart_text": chart.chart_text,
+        "placements_text": chart.placements_text,
+        "body_count": chart.body_count,
+        "birthplace": chart.birth_data.birthplace,
+        "resolved_place": chart.birth_data.resolved_place,
+        "timezone": chart.birth_data.timezone,
+        "timezone_offset": chart.birth_data.timezone_offset,
+        "latitude": chart.birth_data.latitude,
+        "longitude": chart.birth_data.longitude,
+        "zodiac": chart.birth_data.zodiac,
+        "house_system": chart.birth_data.house_system,
+        "houses_text": format_houses_text(chart.houses),
+    }
+    for placement in chart.placements:
+        payload[placement_field_name(placement.body)] = placement_summary(placement)
+    return payload
+
+
 def build_chart_response(
     year: int,
     month: int,
@@ -823,7 +896,7 @@ def calculate_chart(
         resolved_place=resolved.birthplace_resolved,
         birthplace=birthplace,
     )
-    return json_response(chart.model_dump())
+    return json_response(build_action_chart_payload(chart))
 
 
 @app.get("/test", response_model=TestResponse)
