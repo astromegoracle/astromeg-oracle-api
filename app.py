@@ -154,53 +154,18 @@ class PlaceResolution(BaseModel):
 
 CHART_SUCCESS_SCHEMA = {
     "type": "object",
-    "additionalProperties": True,
-    "required": [
-        "status",
-        "success",
-        "message",
-        "chart_text",
-        "placements_text",
-        "body_count",
-        "resolved_place",
-        "timezone",
-        "latitude",
-        "longitude",
-    ],
+    "required": ["status", "success", "message", "chart_text", "placements_text", "body_count"],
     "properties": {
-        "status": {"type": "string", "description": "Successful chart responses use success."},
-        "success": {"type": "boolean", "description": "True when the chart calculation succeeded."},
-        "message": {"type": "string", "description": "Human-readable result summary."},
-        "chart_text": {"type": "string", "description": "Plain-text verified chart summary for GPT Actions."},
-        "placements_text": {"type": "string", "description": "Plain-text verified planetary placements."},
-        "body_count": {"type": "integer", "description": "Number of calculated bodies in placements."},
-        "birthplace": {"type": "string"},
-        "resolved_place": {"type": "string"},
-        "timezone": {"type": "string"},
-        "timezone_offset": {"type": "number"},
-        "latitude": {"type": "number"},
-        "longitude": {"type": "number"},
-        "zodiac": {"type": "string"},
-        "house_system": {"type": "string"},
-        "sun": {"type": "string"},
-        "moon": {"type": "string"},
-        "mercury": {"type": "string"},
-        "venus": {"type": "string"},
-        "mars": {"type": "string"},
-        "jupiter": {"type": "string"},
-        "saturn": {"type": "string"},
-        "uranus": {"type": "string"},
-        "neptune": {"type": "string"},
-        "pluto": {"type": "string"},
-        "north_node": {"type": "string"},
-        "lilith": {"type": "string"},
-        "chiron": {"type": "string"},
-        "houses_text": {"type": "string"},
+        "status": {"type": "string"},
+        "success": {"type": "boolean"},
+        "message": {"type": "string"},
+        "chart_text": {"type": "string"},
+        "placements_text": {"type": "string"},
+        "body_count": {"type": "integer"},
     },
 }
 ERROR_SCHEMA = {
     "type": "object",
-    "additionalProperties": True,
     "required": ["status", "success", "message", "details"],
     "properties": {
         "status": {"type": "string"},
@@ -211,41 +176,7 @@ ERROR_SCHEMA = {
 }
 
 ACTION_COMPONENT_SCHEMAS = {
-    "ChartResponse": {
-        "type": "object",
-        "additionalProperties": True,
-        "description": "Successful Swiss Ephemeris chart calculation response.",
-        "properties": {
-            "status": {"type": "string", "description": "Successful chart responses use success."},
-            "success": {"type": "boolean", "description": "True when the chart calculation succeeded."},
-            "message": {"type": "string", "description": "Human-readable result summary."},
-            "chart_text": {"type": "string", "description": "Plain-text verified chart summary for GPT Actions."},
-            "placements_text": {"type": "string", "description": "Plain-text verified planetary placements."},
-            "body_count": {"type": "integer", "description": "Number of calculated bodies in placements."},
-            "birthplace": {"type": "string"},
-            "resolved_place": {"type": "string"},
-            "timezone": {"type": "string"},
-            "timezone_offset": {"type": "number"},
-            "latitude": {"type": "number"},
-            "longitude": {"type": "number"},
-            "zodiac": {"type": "string"},
-            "house_system": {"type": "string"},
-            "sun": {"type": "string"},
-            "moon": {"type": "string"},
-            "mercury": {"type": "string"},
-            "venus": {"type": "string"},
-            "mars": {"type": "string"},
-            "jupiter": {"type": "string"},
-            "saturn": {"type": "string"},
-            "uranus": {"type": "string"},
-            "neptune": {"type": "string"},
-            "pluto": {"type": "string"},
-            "north_node": {"type": "string"},
-            "lilith": {"type": "string"},
-            "chiron": {"type": "string"},
-            "houses_text": {"type": "string"},
-        },
-    },
+    "ChartResponse": CHART_SUCCESS_SCHEMA,
     "BirthData": {
         "type": "object",
         "additionalProperties": True,
@@ -600,26 +531,14 @@ def placement_summary(placement: PlacementResponse) -> str:
 
 
 def build_action_chart_payload(chart: ChartResponse) -> dict:
-    payload = {
+    return {
         "status": chart.status,
         "success": chart.success,
         "message": chart.message,
         "chart_text": chart.chart_text,
         "placements_text": chart.placements_text,
         "body_count": chart.body_count,
-        "birthplace": chart.birth_data.birthplace,
-        "resolved_place": chart.birth_data.resolved_place,
-        "timezone": chart.birth_data.timezone,
-        "timezone_offset": chart.birth_data.timezone_offset,
-        "latitude": chart.birth_data.latitude,
-        "longitude": chart.birth_data.longitude,
-        "zodiac": chart.birth_data.zodiac,
-        "house_system": chart.birth_data.house_system,
-        "houses_text": format_houses_text(chart.houses),
     }
-    for placement in chart.placements:
-        payload[placement_field_name(placement.body)] = placement_summary(placement)
-    return payload
 
 
 def build_chart_response(
@@ -710,7 +629,7 @@ def custom_openapi():
     )
 
     chart_operation = schema["paths"]["/chart"]["get"]
-    chart_operation["operationId"] = "calculate_chart"
+    chart_operation["operationId"] = "get_astromeg_chart"
     chart_operation["summary"] = "Calculate natal chart"
     chart_operation["description"] = (
         "Calculate a tropical natal chart with Placidus houses using Swiss Ephemeris only. "
@@ -764,28 +683,12 @@ def custom_openapi():
         "200": {
             "description": "Chart calculated successfully.",
             "content": {"application/json": {"schema": CHART_SUCCESS_SCHEMA}},
-        },
-        "400": {
-            "description": "Invalid birth data or unresolved birthplace.",
-            "content": {"application/json": {"schema": ERROR_SCHEMA}},
-        },
-        "422": {
-            "description": "Missing or invalid query parameter.",
-            "content": {"application/json": {"schema": ERROR_SCHEMA}},
-        },
-        "500": {
-            "description": "Unexpected calculation failure.",
-            "content": {"application/json": {"schema": ERROR_SCHEMA}},
-        },
-        "502": {
-            "description": "External lookup unavailable.",
-            "content": {"application/json": {"schema": ERROR_SCHEMA}},
-        },
+        }
     }
 
     schema["openapi"] = "3.1.0"
     schema["paths"] = {"/chart": {"get": chart_operation}}
-    schema["components"] = {"schemas": ACTION_COMPONENT_SCHEMAS}
+    schema.pop("components", None)
     app.openapi_schema = schema
     return app.openapi_schema
 
