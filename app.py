@@ -32,6 +32,7 @@ LOOKUP_ATTEMPTS = 2
 RETRY_DELAY_SECONDS = 0.25
 HOUSE_SYSTEM = "Placidus"
 ZODIAC = "Tropical"
+NO_TRANSFORM_HEADERS = {"Cache-Control": "no-transform"}
 
 os.environ["SE_EPHE_PATH"] = str(EPHE_PATH)
 swe.set_ephe_path(str(EPHE_PATH))
@@ -719,10 +720,14 @@ def custom_openapi():
 app.openapi = custom_openapi
 
 
+def json_response(content: dict, status_code: int = 200) -> JSONResponse:
+    return JSONResponse(status_code=status_code, content=content, headers=NO_TRANSFORM_HEADERS)
+
+
 @app.exception_handler(HTTPException)
 async def http_exception_handler(_request: Request, exc: HTTPException):
     logger.warning("request error status=%s detail=%s", exc.status_code, exc.detail)
-    return JSONResponse(
+    return json_response(
         status_code=exc.status_code,
         content={"status": "error", "success": False, "message": str(exc.detail), "details": ""},
     )
@@ -731,7 +736,7 @@ async def http_exception_handler(_request: Request, exc: HTTPException):
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(_request: Request, exc: RequestValidationError):
     logger.warning("validation error details=%s", exc.errors())
-    return JSONResponse(
+    return json_response(
         status_code=422,
         content={"status": "error", "success": False, "message": "Invalid request parameters.", "details": str(exc.errors())},
     )
@@ -740,7 +745,7 @@ async def validation_exception_handler(_request: Request, exc: RequestValidation
 @app.exception_handler(Exception)
 async def unexpected_exception_handler(_request: Request, exc: Exception):
     logger.exception("unexpected error")
-    return JSONResponse(
+    return json_response(
         status_code=500,
         content={"status": "error", "success": False, "message": "Internal server error.", "details": str(exc)},
     )
@@ -805,7 +810,7 @@ def calculate_chart(
     resolved = resolve_birthplace(birthplace)
     timezone_offset = timezone_offset_hours(year, month, day, hour, minute, resolved.timezone_name)
 
-    return build_chart_response(
+    chart = build_chart_response(
         year=year,
         month=month,
         day=day,
@@ -818,6 +823,7 @@ def calculate_chart(
         resolved_place=resolved.birthplace_resolved,
         birthplace=birthplace,
     )
+    return json_response(chart.model_dump())
 
 
 @app.get("/test", response_model=TestResponse)
