@@ -632,8 +632,8 @@ def custom_openapi():
         servers=[{"url": "https://astromeg-oracle-api.onrender.com"}],
     )
 
-    chart_operation = schema["paths"]["/chart-text"]["get"]
-    chart_operation["operationId"] = "get_astromeg_chart_text"
+    chart_operation = schema["paths"]["/chart"]["get"]
+    chart_operation["operationId"] = "get_astromeg_chart"
     chart_operation["summary"] = "Calculate natal chart"
     chart_operation["description"] = (
         "Calculate a tropical natal chart with Placidus houses using Swiss Ephemeris only. "
@@ -691,7 +691,7 @@ def custom_openapi():
     }
 
     schema["openapi"] = "3.1.0"
-    schema["paths"] = {"/chart-text": {"get": chart_operation}}
+    schema["paths"] = {"/chart": {"get": chart_operation}}
     schema.pop("components", None)
     app.openapi_schema = schema
     return app.openapi_schema
@@ -803,7 +803,7 @@ def calculate_chart(
         resolved_place=resolved.birthplace_resolved,
         birthplace=birthplace,
     )
-    return json_response(build_action_chart_payload(chart))
+    return json_response(build_chart_text_payload(chart))
 
 
 @app.get(
