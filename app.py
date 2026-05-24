@@ -154,14 +154,9 @@ class PlaceResolution(BaseModel):
 
 CHART_SUCCESS_SCHEMA = {
     "type": "object",
-    "required": ["status", "success", "message", "chart_text", "placements_text", "body_count"],
+    "required": ["result"],
     "properties": {
-        "status": {"type": "string"},
-        "success": {"type": "boolean"},
-        "message": {"type": "string"},
-        "chart_text": {"type": "string"},
-        "placements_text": {"type": "string"},
-        "body_count": {"type": "integer"},
+        "result": {"type": "string"},
     },
 }
 ERROR_SCHEMA = {
@@ -541,6 +536,15 @@ def build_action_chart_payload(chart: ChartResponse) -> dict:
     }
 
 
+def build_chart_text_payload(chart: ChartResponse) -> dict:
+    return {
+        "result": (
+            f"SUCCESS | {chart.message} | body_count={chart.body_count} | "
+            f"{chart.placements_text}"
+        )
+    }
+
+
 def build_chart_response(
     year: int,
     month: int,
@@ -628,8 +632,8 @@ def custom_openapi():
         servers=[{"url": "https://astromeg-oracle-api.onrender.com"}],
     )
 
-    chart_operation = schema["paths"]["/chart"]["get"]
-    chart_operation["operationId"] = "get_astromeg_chart"
+    chart_operation = schema["paths"]["/chart-text"]["get"]
+    chart_operation["operationId"] = "get_astromeg_chart_text"
     chart_operation["summary"] = "Calculate natal chart"
     chart_operation["description"] = (
         "Calculate a tropical natal chart with Placidus houses using Swiss Ephemeris only. "
@@ -687,7 +691,7 @@ def custom_openapi():
     }
 
     schema["openapi"] = "3.1.0"
-    schema["paths"] = {"/chart": {"get": chart_operation}}
+    schema["paths"] = {"/chart-text": {"get": chart_operation}}
     schema.pop("components", None)
     app.openapi_schema = schema
     return app.openapi_schema
@@ -800,6 +804,51 @@ def calculate_chart(
         birthplace=birthplace,
     )
     return json_response(build_action_chart_payload(chart))
+
+
+@app.get(
+    "/chart-text",
+    operation_id="get_astromeg_chart_text",
+    description=(
+        "Calculate a tropical natal chart with Placidus houses using Swiss Ephemeris. "
+        "Returns a single plain-text result field for ChatGPT Actions compatibility."
+    ),
+    responses={
+        200: {"description": "Chart calculated successfully.", "content": {"application/json": {"schema": CHART_SUCCESS_SCHEMA}}},
+        400: {"description": "Invalid birth data or unresolved birthplace.", "content": {"application/json": {"schema": ERROR_SCHEMA}}},
+        422: {"description": "Missing or invalid query parameter.", "content": {"application/json": {"schema": ERROR_SCHEMA}}},
+        500: {"description": "Unexpected calculation failure.", "content": {"application/json": {"schema": ERROR_SCHEMA}}},
+        502: {"description": "External lookup unavailable.", "content": {"application/json": {"schema": ERROR_SCHEMA}}},
+    },
+)
+def calculate_chart_text(
+    year: int,
+    month: int,
+    day: int,
+    hour: int,
+    minute: int,
+    birthplace: Annotated[
+        str,
+        Query(description="Birthplace to geocode, for example: Quezon City, Philippines."),
+    ],
+):
+    resolved = resolve_birthplace(birthplace)
+    timezone_offset = timezone_offset_hours(year, month, day, hour, minute, resolved.timezone_name)
+
+    chart = build_chart_response(
+        year=year,
+        month=month,
+        day=day,
+        hour=hour,
+        minute=minute,
+        latitude=resolved.latitude,
+        longitude=resolved.longitude,
+        timezone_offset=timezone_offset,
+        timezone_name=resolved.timezone_name,
+        resolved_place=resolved.birthplace_resolved,
+        birthplace=birthplace,
+    )
+    return json_response(build_chart_text_payload(chart))
 
 
 @app.get("/test", response_model=TestResponse)
