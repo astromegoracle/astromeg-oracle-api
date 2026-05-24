@@ -32,7 +32,7 @@ LOOKUP_ATTEMPTS = 2
 RETRY_DELAY_SECONDS = 0.25
 HOUSE_SYSTEM = "Placidus"
 ZODIAC = "Tropical"
-NO_TRANSFORM_HEADERS = {"Cache-Control": "no-transform"}
+NO_TRANSFORM_HEADERS = {"Cache-Control": "no-transform", "Content-Encoding": "identity"}
 
 os.environ["SE_EPHE_PATH"] = str(EPHE_PATH)
 swe.set_ephe_path(str(EPHE_PATH))
