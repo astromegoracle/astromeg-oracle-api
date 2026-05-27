@@ -114,7 +114,10 @@ class ChartResponse(BaseModel):
     message: str = "Chart calculated successfully"
     verified_chart_data: bool = True
     chart: str
+    chart_text: str
     result: str
+    placements_text: str
+    body_count: int
     birth_data: BirthDataResponse
     placements: list[PlacementResponse]
     houses: list[HouseCuspResponse]
@@ -167,7 +170,10 @@ CHART_SUCCESS_SCHEMA = {
         "message",
         "verified_chart_data",
         "chart",
+        "chart_text",
         "result",
+        "placements_text",
+        "body_count",
         "birth_data",
         "placements",
         "houses",
@@ -181,7 +187,10 @@ CHART_SUCCESS_SCHEMA = {
         "message": {"type": "string"},
         "verified_chart_data": {"type": "boolean", "description": "True only when Swiss Ephemeris returned verified chart placements."},
         "chart": {"type": "string", "description": "Plain-language verified chart placements. Use this field when answering users."},
+        "chart_text": {"type": "string", "description": "Plain-language verified chart placements for GPT Actions compatibility."},
         "result": {"type": "string", "description": "Backward-compatible verified placement summary for previously imported Actions."},
+        "placements_text": {"type": "string", "description": "Semicolon-delimited verified placement summary."},
+        "body_count": {"type": "integer", "description": "Number of calculated chart bodies returned in placements."},
         "birth_data": {
             "type": "object",
             "additionalProperties": True,
@@ -623,13 +632,18 @@ def build_chart_response(
         zodiac=ZODIAC,
         house_system=HOUSE_SYSTEM,
     )
+    chart_text = chart_summary(placements)
+    placements_text = placement_summary(placements)
     return ChartResponse(
         status="success",
         success=True,
         message="Chart calculated successfully",
         verified_chart_data=True,
-        chart=chart_summary(placements),
-        result=placement_summary(placements),
+        chart=chart_text,
+        chart_text=chart_text,
+        result=placements_text,
+        placements_text=placements_text,
+        body_count=len(placements),
         birth_data=birth_data,
         placements=placements,
         houses=houses,
