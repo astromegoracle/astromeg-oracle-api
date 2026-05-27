@@ -728,6 +728,55 @@ def build_chart_response(
     )
 
 
+def action_chart_payload(chart: ChartResponse) -> dict:
+    return {
+        "status": "success",
+        "success": True,
+        "message": "Chart calculated successfully",
+        "verified_chart_data": True,
+        "chart": chart.chart,
+        "chart_text": chart.chart_text,
+        "result": chart.result,
+        "placements_text": chart.placements_text,
+        "body_count": chart.body_count,
+        "birth_data": {
+            "year": chart.birth_data.year,
+            "month": chart.birth_data.month,
+            "day": chart.birth_data.day,
+            "hour": chart.birth_data.hour,
+            "minute": chart.birth_data.minute,
+            "birthplace": chart.birth_data.birthplace,
+            "resolved_place": chart.birth_data.resolved_place,
+            "latitude": chart.birth_data.latitude,
+            "longitude": chart.birth_data.longitude,
+            "timezone": chart.birth_data.timezone,
+            "timezone_offset": chart.birth_data.timezone_offset,
+            "zodiac": chart.birth_data.zodiac,
+            "house_system": chart.birth_data.house_system,
+        },
+        "placements": [
+            {
+                "body": placement.body,
+                "sign": placement.sign,
+                "degree": round(placement.degree, 2),
+                "house": placement.house,
+            }
+            for placement in chart.placements
+        ],
+        "houses": [
+            {
+                "house": house.house,
+                "sign": house.sign,
+                "degree": round(house.degree, 2),
+            }
+            for house in chart.houses
+        ],
+        "ascendant": round(chart.ascendant % 360, 2),
+        "midheaven": round(chart.midheaven % 360, 2),
+        "aspects": [],
+    }
+
+
 app = FastAPI(
     title="Astromeg Oracle Swiss Ephemeris API",
     version="1.0.0",
@@ -967,7 +1016,6 @@ def ephe_status():
 
 @app.get(
     "/chart",
-    response_model=ChartResponse,
     operation_id="calculate_chart",
     description=(
         "Calculate a tropical natal chart with Placidus houses using Swiss Ephemeris. "
@@ -1039,7 +1087,7 @@ def calculate_chart(
 
     timezone_offset = timezone_offset_hours(year, month, day, hour, minute, resolved.timezone_name)
 
-    return build_chart_response(
+    chart = build_chart_response(
         year=year,
         month=month,
         day=day,
@@ -1052,6 +1100,7 @@ def calculate_chart(
         resolved_place=resolved.birthplace_resolved,
         birthplace=birthplace,
     )
+    return json_response(action_chart_payload(chart))
 
 
 @app.get("/test", response_model=TestResponse)
