@@ -555,7 +555,8 @@ def custom_openapi():
         version=app.version,
         description=(
             "Action schema for calculating tropical Placidus natal charts with Swiss Ephemeris. "
-            "Use /chart with the required birth date, birth time, and birthplace query parameters."
+            "Use /chart only after collecting birth date, birth time, and birthplace. "
+            "Every chart request must include the required birthplace query parameter."
         ),
         routes=app.routes,
         openapi_version="3.1.0",
@@ -567,7 +568,8 @@ def custom_openapi():
     chart_operation["summary"] = "Calculate natal chart"
     chart_operation["description"] = (
         "Calculate a tropical natal chart with Placidus houses using Swiss Ephemeris only. "
-        "Birthplace is geocoded internally and timezone is resolved automatically."
+        "Birthplace is geocoded internally and timezone is resolved automatically. "
+        "Always send birthplace exactly as provided by the user; do not call this operation without it."
     )
     chart_operation["parameters"] = [
         {
@@ -610,7 +612,7 @@ def custom_openapi():
             "in": "query",
             "required": True,
             "schema": {"type": "string", "example": "Quezon City, Philippines"},
-            "description": "Birthplace to resolve, for example Quezon City, Philippines.",
+            "description": "Required birthplace to resolve, for example Quezon City, Philippines. Never omit this parameter.",
         },
     ]
     chart_operation["responses"] = {
@@ -650,6 +652,20 @@ async def http_exception_handler(_request: Request, exc: HTTPException):
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(_request: Request, exc: RequestValidationError):
     logger.warning("validation error details=%s", exc.errors())
+    missing_birthplace = any(
+        error.get("type") == "missing" and tuple(error.get("loc", ())) == ("query", "birthplace")
+        for error in exc.errors()
+    )
+    if missing_birthplace:
+        return json_response(
+            status_code=422,
+            content={
+                "status": "error",
+                "success": False,
+                "message": "Birthplace is required to calculate a verified chart. Retry this request with birthplace included.",
+                "details": "Missing required query parameter: birthplace.",
+            },
+        )
     return json_response(
         status_code=422,
         content={"status": "error", "success": False, "message": "Invalid request parameters.", "details": str(exc.errors())},
