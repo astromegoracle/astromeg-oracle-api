@@ -235,6 +235,7 @@ ERROR_SCHEMA = {
         "success": {"type": "boolean"},
         "message": {"type": "string"},
         "details": {"type": "string"},
+        "http_status": {"type": "integer"},
     },
 }
 
@@ -744,8 +745,7 @@ def json_response(content: dict, status_code: int = 200) -> JSONResponse:
 async def http_exception_handler(_request: Request, exc: HTTPException):
     logger.warning("request error status=%s detail=%s", exc.status_code, exc.detail)
     return json_response(
-        status_code=exc.status_code,
-        content={"status": "error", "success": False, "message": str(exc.detail), "details": ""},
+        content={"status": "error", "success": False, "message": str(exc.detail), "details": "", "http_status": exc.status_code},
     )
 
 
@@ -758,17 +758,22 @@ async def validation_exception_handler(_request: Request, exc: RequestValidation
     )
     if missing_birthplace:
         return json_response(
-            status_code=422,
             content={
                 "status": "error",
                 "success": False,
                 "message": "Birthplace is required to calculate a verified chart. Retry this request with birthplace included.",
                 "details": "Missing required query parameter: birthplace.",
+                "http_status": 422,
             },
         )
     return json_response(
-        status_code=422,
-        content={"status": "error", "success": False, "message": "Invalid request parameters.", "details": str(exc.errors())},
+        content={
+            "status": "error",
+            "success": False,
+            "message": "Invalid request parameters.",
+            "details": str(exc.errors()),
+            "http_status": 422,
+        },
     )
 
 
@@ -776,8 +781,7 @@ async def validation_exception_handler(_request: Request, exc: RequestValidation
 async def unexpected_exception_handler(_request: Request, exc: Exception):
     logger.exception("unexpected error")
     return json_response(
-        status_code=500,
-        content={"status": "error", "success": False, "message": "Internal server error.", "details": str(exc)},
+        content={"status": "error", "success": False, "message": "Internal server error.", "details": str(exc), "http_status": 500},
     )
 
 
