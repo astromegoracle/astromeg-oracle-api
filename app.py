@@ -24,6 +24,7 @@ logger = logging.getLogger("astromeg-oracle")
 
 BASE_DIR = Path(__file__).resolve().parent
 EPHE_PATH = BASE_DIR / "ephe"
+PLACE_CACHE_FILE = BASE_DIR / "place_cache.json"
 EPHE_FILES = ("sepl_18.se1", "semo_18.se1", "seas_18.se1")
 USER_AGENT = "astromeg-oracle-api/1.0"
 GEOCODE_TIMEOUT_SECONDS = 3
@@ -247,6 +248,15 @@ ERROR_SCHEMA = {
         "http_status": {"type": "integer"},
     },
 }
+CHART_RESPONSE_SCHEMA = {
+    "type": "object",
+    "additionalProperties": True,
+    "required": ["status", "success", "message"],
+    "properties": {
+        **CHART_SUCCESS_SCHEMA["properties"],
+        **ERROR_SCHEMA["properties"],
+    },
+}
 
 
 COMMON_PLACE_CACHE: dict[str, PlaceResolution] = {
@@ -328,7 +338,51 @@ COMMON_PLACE_CACHE: dict[str, PlaceResolution] = {
         timezone_name="Asia/Tokyo",
     ),
 }
+
+
+def load_persistent_place_cache() -> dict[str, PlaceResolution]:
+    if not PLACE_CACHE_FILE.is_file():
+        return {}
+
+    try:
+        raw_cache = json.loads(PLACE_CACHE_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        logger.warning("place cache load failed path=%s error=%s", PLACE_CACHE_FILE, error)
+        return {}
+
+    if not isinstance(raw_cache, dict):
+        logger.warning("place cache ignored path=%s reason=not_object", PLACE_CACHE_FILE)
+        return {}
+
+    cache: dict[str, PlaceResolution] = {}
+    for cache_key, value in raw_cache.items():
+        if not isinstance(cache_key, str) or not isinstance(value, dict):
+            continue
+        try:
+            cache[cache_key] = PlaceResolution(**value)
+        except (TypeError, ValueError) as error:
+            logger.warning("place cache entry ignored key=%s error=%s", cache_key, error)
+
+    logger.info("place cache loaded path=%s entries=%s", PLACE_CACHE_FILE, len(cache))
+    return cache
+
+
+def persist_place_cache() -> None:
+    try:
+        serializable_cache = {
+            cache_key: place.model_dump()
+            for cache_key, place in sorted(PLACE_CACHE.items())
+        }
+        temp_path = PLACE_CACHE_FILE.with_name(f"{PLACE_CACHE_FILE.name}.tmp")
+        temp_path.write_text(json.dumps(serializable_cache, indent=2, sort_keys=True), encoding="utf-8")
+        os.replace(temp_path, PLACE_CACHE_FILE)
+        logger.info("place cache saved path=%s entries=%s", PLACE_CACHE_FILE, len(serializable_cache))
+    except OSError as error:
+        logger.warning("place cache save failed path=%s error=%s", PLACE_CACHE_FILE, error)
+
+
 PLACE_CACHE: dict[str, PlaceResolution] = dict(COMMON_PLACE_CACHE)
+PLACE_CACHE.update(load_persistent_place_cache())
 SIGNS = (
     "Aries",
     "Taurus",
@@ -475,36 +529,56 @@ def select_location_match(birthplace: str, matches: list[dict]) -> dict:
 
 
 def geocode_birthplace(birthplace: str) -> PlaceResolution:
-    location_name = birthplace.split(",", maxsplit=1)[0].strip()
-    parameters = {"name": location_name, "count": 10, "language": "en", "format": "json"}
-    if OPEN_METEO_API_KEY:
-        parameters["apikey"] = OPEN_METEO_API_KEY
-    query = urlencode(parameters)
-    geocode_data = fetch_json(
-        f"{OPEN_METEO_GEOCODE_URL}?{query}",
-        GEOCODE_TIMEOUT_SECONDS,
-        log_url=OPEN_METEO_GEOCODE_URL,
-    )
-    matches = geocode_data.get("results") if isinstance(geocode_data, dict) else None
-
-    if not isinstance(matches, list) or not matches:
-        raise HTTPException(status_code=400, detail=f"Could not geocode birthplace: {birthplace}")
-
-    valid_matches = [candidate for candidate in matches if isinstance(candidate, dict)]
-    if not valid_matches:
-        raise HTTPException(status_code=502, detail="Malformed geocoder response: no valid location records.")
-
-    match = select_location_match(birthplace, valid_matches)
     try:
-        return PlaceResolution(
+        location_name = birthplace.split(",", maxsplit=1)[0].strip()
+        parameters = {"name": location_name, "count": 10, "language": "en", "format": "json"}
+        if OPEN_METEO_API_KEY:
+            parameters["apikey"] = OPEN_METEO_API_KEY
+        query = urlencode(parameters)
+
+        logger.info("geocode start query=%s provider=open-meteo endpoint=%s", birthplace, OPEN_METEO_GEOCODE_URL)
+        geocode_data = fetch_json(
+            f"{OPEN_METEO_GEOCODE_URL}?{query}",
+            GEOCODE_TIMEOUT_SECONDS,
+            log_url=OPEN_METEO_GEOCODE_URL,
+        )
+        matches = geocode_data.get("results") if isinstance(geocode_data, dict) else None
+        match_count = len(matches) if isinstance(matches, list) else 0
+        logger.info("geocode response query=%s provider=open-meteo matches=%s", birthplace, match_count)
+
+        if not isinstance(matches, list) or not matches:
+            raise HTTPException(status_code=400, detail=f"Could not geocode birthplace: {birthplace}")
+
+        valid_matches = [candidate for candidate in matches if isinstance(candidate, dict)]
+        if not valid_matches:
+            raise HTTPException(status_code=502, detail="Malformed geocoder response: no valid location records.")
+
+        match = select_location_match(birthplace, valid_matches)
+        resolution = PlaceResolution(
             query=birthplace,
             birthplace_resolved=location_label(match, birthplace),
             latitude=float(match["latitude"]),
             longitude=float(match["longitude"]),
             timezone_name=str(match["timezone"]),
         )
+        logger.info(
+            "geocode success query=%s resolved=%s latitude=%s longitude=%s timezone=%s",
+            birthplace,
+            resolution.birthplace_resolved,
+            resolution.latitude,
+            resolution.longitude,
+            resolution.timezone_name,
+        )
+        return resolution
+    except HTTPException:
+        logger.warning("geocode failed query=%s", birthplace)
+        raise
     except (KeyError, TypeError, ValueError) as error:
+        logger.warning("geocode malformed query=%s error=%s", birthplace, error)
         raise HTTPException(status_code=502, detail=f"Malformed geocoder response: {error}") from error
+    except Exception as error:
+        logger.exception("geocode unexpected failure query=%s", birthplace)
+        raise HTTPException(status_code=502, detail=f"Geocoding failed unexpectedly: {error}") from error
 
 
 def resolve_birthplace(birthplace: str) -> PlaceResolution:
@@ -517,6 +591,7 @@ def resolve_birthplace(birthplace: str) -> PlaceResolution:
     logger.info("birthplace cache miss query=%s", birthplace)
     resolution = geocode_birthplace(birthplace)
     PLACE_CACHE[cache_key] = resolution
+    persist_place_cache()
     return resolution
 
 
@@ -732,8 +807,8 @@ def custom_openapi():
     ]
     chart_operation["responses"] = {
         "200": {
-            "description": "Chart calculated successfully.",
-            "content": {"application/json": {"schema": CHART_SUCCESS_SCHEMA}},
+            "description": "Chart calculated successfully, or a readable application-level error was returned.",
+            "content": {"application/json": {"schema": CHART_RESPONSE_SCHEMA}},
         },
         "default": {
             "description": "Chart request could not be calculated.",
@@ -899,7 +974,10 @@ def ephe_status():
         "Required query parameters are year, month, day, hour, minute, and birthplace."
     ),
     responses={
-        200: {"description": "Chart calculated successfully.", "content": {"application/json": {"schema": CHART_SUCCESS_SCHEMA}}},
+        200: {
+            "description": "Chart calculated successfully, or a readable application-level error was returned.",
+            "content": {"application/json": {"schema": CHART_RESPONSE_SCHEMA}},
+        },
         400: {"description": "Invalid birth data or unresolved birthplace.", "content": {"application/json": {"schema": ERROR_SCHEMA}}},
         422: {"description": "Missing or invalid query parameter.", "content": {"application/json": {"schema": ERROR_SCHEMA}}},
         500: {"description": "Unexpected calculation failure.", "content": {"application/json": {"schema": ERROR_SCHEMA}}},
@@ -928,7 +1006,37 @@ def calculate_chart(
             }
         )
 
-    resolved = resolve_birthplace(birthplace)
+    try:
+        logger.info("chart birthplace resolution start query=%s", birthplace)
+        resolved = resolve_birthplace(birthplace)
+        logger.info(
+            "chart birthplace resolution success query=%s resolved=%s",
+            birthplace,
+            resolved.birthplace_resolved,
+        )
+    except HTTPException as error:
+        logger.warning("chart birthplace resolution failed query=%s detail=%s", birthplace, error.detail)
+        return json_response(
+            {
+                "status": "error",
+                "success": False,
+                "message": "Birthplace lookup failed.",
+                "details": str(error.detail),
+                "http_status": error.status_code,
+            }
+        )
+    except Exception as error:
+        logger.exception("chart birthplace resolution unexpected failure query=%s", birthplace)
+        return json_response(
+            {
+                "status": "error",
+                "success": False,
+                "message": "Birthplace lookup failed.",
+                "details": str(error),
+                "http_status": 502,
+            }
+        )
+
     timezone_offset = timezone_offset_hours(year, month, day, hour, minute, resolved.timezone_name)
 
     return build_chart_response(

@@ -1,0 +1,79 @@
+{
+  "calabanga, camarines sur, philippines": {
+    "birthplace_resolved": "Calabanga, Camarines Sur, Bicol Region, 4405, Philippines",
+    "latitude": 13.708545,
+    "longitude": 123.2157561,
+    "query": "Calabanga, Camarines Sur, Philippines",
+    "timezone_name": "Asia/Manila"
+  },
+  "dubai, uae": {
+    "birthplace_resolved": "Dubai, United Arab Emirates",
+    "latitude": 25.2048,
+    "longitude": 55.2708,
+    "query": "Dubai, UAE",
+    "timezone_name": "Asia/Dubai"
+  },
+  "dubai, united arab emirates": {
+    "birthplace_resolved": "Dubai, United Arab Emirates",
+    "latitude": 25.2048,
+    "longitude": 55.2708,
+    "query": "Dubai, United Arab Emirates",
+    "timezone_name": "Asia/Dubai"
+  },
+  "london, united kingdom": {
+    "birthplace_resolved": "London, Greater London, England, United Kingdom",
+    "latitude": 51.5074,
+    "longitude": -0.1278,
+    "query": "London, United Kingdom",
+    "timezone_name": "Europe/London"
+  },
+  "manila, philippines": {
+    "birthplace_resolved": "Manila, Capital District, Metro Manila, Philippines",
+    "latitude": 14.5995,
+    "longitude": 120.9842,
+    "query": "Manila, Philippines",
+    "timezone_name": "Asia/Manila"
+  },
+  "new york, united states": {
+    "birthplace_resolved": "New York, United States",
+    "latitude": 40.7128,
+    "longitude": -74.006,
+    "query": "New York, United States",
+    "timezone_name": "America/New_York"
+  },
+  "new york, usa": {
+    "birthplace_resolved": "New York, United States",
+    "latitude": 40.7128,
+    "longitude": -74.006,
+    "query": "New York, USA",
+    "timezone_name": "America/New_York"
+  },
+  "paris, france": {
+    "birthplace_resolved": "Paris, Ile-de-France, France",
+    "latitude": 48.8566,
+    "longitude": 2.3522,
+    "query": "Paris, France",
+    "timezone_name": "Europe/Paris"
+  },
+  "quezon city, philippines": {
+    "birthplace_resolved": "Quezon City, Eastern Manila District, Metropolitan Manila, Philippines",
+    "latitude": 14.676,
+    "longitude": 121.0437,
+    "query": "Quezon City, Philippines",
+    "timezone_name": "Asia/Manila"
+  },
+  "sydney, australia": {
+    "birthplace_resolved": "Sydney, New South Wales, Australia",
+    "latitude": -33.8688,
+    "longitude": 151.2093,
+    "query": "Sydney, Australia",
+    "timezone_name": "Australia/Sydney"
+  },
+  "tokyo, japan": {
+    "birthplace_resolved": "Tokyo, Japan",
+    "latitude": 35.6762,
+    "longitude": 139.6503,
+    "query": "Tokyo, Japan",
+    "timezone_name": "Asia/Tokyo"
+  }
+}
