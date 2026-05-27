@@ -755,7 +755,7 @@ def robots_txt():
 
 @app.get("/favicon.ico", include_in_schema=False)
 def favicon():
-    return Response(status_code=204)
+    return Response(content=b"", media_type="image/x-icon", status_code=200)
 
 
 @app.get("/health", response_model=HealthResponse)
