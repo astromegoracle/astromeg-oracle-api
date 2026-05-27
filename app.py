@@ -112,6 +112,8 @@ class ChartResponse(BaseModel):
     status: str = "success"
     success: bool = True
     message: str = "Chart calculated successfully"
+    verified_chart_data: bool = True
+    chart: str
     result: str
     birth_data: BirthDataResponse
     placements: list[PlacementResponse]
@@ -159,11 +161,26 @@ class PlaceResolution(BaseModel):
 CHART_SUCCESS_SCHEMA = {
     "type": "object",
     "additionalProperties": True,
-    "required": ["status", "success", "message", "result", "birth_data", "placements", "houses", "ascendant", "midheaven", "aspects"],
+    "required": [
+        "status",
+        "success",
+        "message",
+        "verified_chart_data",
+        "chart",
+        "result",
+        "birth_data",
+        "placements",
+        "houses",
+        "ascendant",
+        "midheaven",
+        "aspects",
+    ],
     "properties": {
         "status": {"type": "string"},
         "success": {"type": "boolean"},
         "message": {"type": "string"},
+        "verified_chart_data": {"type": "boolean", "description": "True only when Swiss Ephemeris returned verified chart placements."},
+        "chart": {"type": "string", "description": "Plain-language verified chart placements. Use this field when answering users."},
         "result": {"type": "string", "description": "Backward-compatible verified placement summary for previously imported Actions."},
         "birth_data": {
             "type": "object",
@@ -555,6 +572,14 @@ def placement_summary(placements: list[PlacementResponse]) -> str:
     return f"SUCCESS | Chart calculated successfully | body_count={len(placements)} | {formatted}"
 
 
+def chart_summary(placements: list[PlacementResponse]) -> str:
+    formatted = "\n".join(
+        f"{placement.body}: {placement.sign} {placement.degree:.2f} degrees, house {placement.house}"
+        for placement in placements
+    )
+    return f"VERIFIED_ASTROMEG_CHART_DATA\n{formatted}"
+
+
 def build_chart_response(
     year: int,
     month: int,
@@ -601,6 +626,8 @@ def build_chart_response(
         status="success",
         success=True,
         message="Chart calculated successfully",
+        verified_chart_data=True,
+        chart=chart_summary(placements),
         result=placement_summary(placements),
         birth_data=birth_data,
         placements=placements,
