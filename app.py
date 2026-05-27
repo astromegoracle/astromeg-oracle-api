@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
-from fastapi.responses import JSONResponse, PlainTextResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
 from pydantic import BaseModel, Field
 import swisseph as swe
 
@@ -767,6 +767,58 @@ def robots_txt():
 @app.get("/favicon.ico", include_in_schema=False)
 def favicon():
     return Response(content=b"", media_type="image/x-icon", status_code=200)
+
+
+@app.get("/privacy-policy", include_in_schema=False)
+def privacy_policy():
+    return HTMLResponse(
+        """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Astromeg Oracle API Privacy Policy</title>
+</head>
+<body>
+  <main>
+    <h1>Astromeg Oracle API Privacy Policy</h1>
+    <p>Effective date: May 27, 2026</p>
+    <p>
+      The Astromeg Oracle chart action processes birth date, birth time, and
+      birthplace supplied by the user to calculate an astrology chart.
+    </p>
+    <h2>How data is used</h2>
+    <p>
+      Birth data is used only to resolve the location and timezone and to
+      calculate chart placements using Swiss Ephemeris.
+    </p>
+    <h2>Location resolution</h2>
+    <p>
+      When a birthplace is not already available in the service cache, the
+      birthplace may be sent to the Open-Meteo geocoding service to retrieve
+      geographic coordinates and a timezone.
+    </p>
+    <h2>Storage and logging</h2>
+    <p>
+      Successful location resolutions may be held in temporary application
+      memory to improve response speed. Hosting infrastructure may record
+      standard request logs for reliability and security. Astromeg does not
+      sell birth data submitted to the chart action.
+    </p>
+    <h2>Contact</h2>
+    <p>
+      For privacy questions or requests, contact Astromeg through
+      <a href="https://www.astromeg.me/contact">www.astromeg.me/contact</a>.
+    </p>
+    <p>
+      General Astromeg privacy information is available at
+      <a href="https://www.astromeg.me/privacy-policy">www.astromeg.me/privacy-policy</a>.
+    </p>
+  </main>
+</body>
+</html>
+"""
+    )
 
 
 @app.get("/health", response_model=HealthResponse)
