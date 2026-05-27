@@ -32,7 +32,6 @@ LOOKUP_ATTEMPTS = 2
 RETRY_DELAY_SECONDS = 0.25
 HOUSE_SYSTEM = "Placidus"
 ZODIAC = "Tropical"
-NO_TRANSFORM_HEADERS = {"Cache-Control": "no-transform", "Content-Encoding": "identity"}
 
 os.environ["SE_EPHE_PATH"] = str(EPHE_PATH)
 swe.set_ephe_path(str(EPHE_PATH))
@@ -108,12 +107,11 @@ class ChartResponse(BaseModel):
     status: str = "success"
     success: bool = True
     message: str = "Chart calculated successfully"
-    chart_text: str
-    placements_text: str
-    body_count: int
     birth_data: BirthDataResponse
     placements: list[PlacementResponse]
     houses: list[HouseCuspResponse]
+    ascendant: float
+    midheaven: float
     aspects: list[AspectResponse] = Field(default_factory=list)
 
 
@@ -154,83 +152,65 @@ class PlaceResolution(BaseModel):
 
 CHART_SUCCESS_SCHEMA = {
     "type": "object",
-    "required": ["result"],
+    "additionalProperties": True,
+    "required": ["status", "success", "message", "birth_data", "placements", "houses", "ascendant", "midheaven", "aspects"],
     "properties": {
-        "result": {"type": "string"},
+        "status": {"type": "string"},
+        "success": {"type": "boolean"},
+        "message": {"type": "string"},
+        "birth_data": {
+            "type": "object",
+            "additionalProperties": True,
+            "properties": {
+                "birthplace": {"type": "string"},
+                "resolved_place": {"type": "string"},
+                "timezone": {"type": "string"},
+                "latitude": {"type": "number"},
+                "longitude": {"type": "number"},
+            },
+        },
+        "placements": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": True,
+                "properties": {
+                    "body": {"type": "string"},
+                    "sign": {"type": "string"},
+                    "degree": {"type": "number"},
+                    "house": {"type": "integer"},
+                },
+            },
+        },
+        "houses": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": True,
+                "properties": {
+                    "house": {"type": "integer"},
+                    "sign": {"type": "string"},
+                    "degree": {"type": "number"},
+                },
+            },
+        },
+        "ascendant": {"type": "number"},
+        "midheaven": {"type": "number"},
+        "aspects": {
+            "type": "array",
+            "items": {"type": "object", "additionalProperties": True},
+        },
     },
 }
 ERROR_SCHEMA = {
     "type": "object",
+    "additionalProperties": True,
     "required": ["status", "success", "message", "details"],
     "properties": {
         "status": {"type": "string"},
         "success": {"type": "boolean"},
         "message": {"type": "string"},
         "details": {"type": "string"},
-    },
-}
-
-ACTION_COMPONENT_SCHEMAS = {
-    "ChartResponse": CHART_SUCCESS_SCHEMA,
-    "BirthData": {
-        "type": "object",
-        "additionalProperties": True,
-        "properties": {
-            "year": {"type": "integer"},
-            "month": {"type": "integer"},
-            "day": {"type": "integer"},
-            "hour": {"type": "integer"},
-            "minute": {"type": "integer"},
-            "birthplace": {"type": "string"},
-            "resolved_place": {"type": "string"},
-            "latitude": {"type": "number"},
-            "longitude": {"type": "number"},
-            "timezone": {"type": "string"},
-            "timezone_offset": {"type": "number"},
-            "zodiac": {"type": "string"},
-            "house_system": {"type": "string"},
-        },
-    },
-    "Placement": {
-        "type": "object",
-        "additionalProperties": True,
-        "properties": {
-            "body": {"type": "string"},
-            "sign": {"type": "string"},
-            "degree": {"type": "number"},
-            "absolute_degree": {"type": "number"},
-            "house": {"type": "integer"},
-        },
-    },
-    "HouseCusp": {
-        "type": "object",
-        "additionalProperties": True,
-        "properties": {
-            "house": {"type": "integer"},
-            "sign": {"type": "string"},
-            "degree": {"type": "number"},
-            "absolute_degree": {"type": "number"},
-        },
-    },
-    "Aspect": {
-        "type": "object",
-        "additionalProperties": True,
-        "properties": {
-            "body_a": {"type": "string"},
-            "body_b": {"type": "string"},
-            "aspect": {"type": "string"},
-            "orb": {"type": "number"},
-        },
-    },
-    "ErrorResponse": {
-        "type": "object",
-        "additionalProperties": True,
-        "properties": {
-            "status": {"type": "string"},
-            "success": {"type": "boolean"},
-            "message": {"type": "string"},
-            "details": {"type": "string"},
-        },
     },
 }
 
@@ -503,48 +483,6 @@ def calculate_houses(jd: float, latitude: float, longitude: float) -> tuple[list
     return house_cusps, cusp_values, ascmc[0], ascmc[1]
 
 
-def format_placements_text(placements: list[PlacementResponse]) -> str:
-    return "; ".join(
-        f"{placement.body}: {placement.sign} {placement.degree:.2f} degrees, house {placement.house}"
-        for placement in placements
-    )
-
-
-def format_houses_text(houses: list[HouseCuspResponse]) -> str:
-    return "; ".join(
-        f"House {house.house}: {house.sign} {house.degree:.2f} degrees"
-        for house in houses
-    )
-
-
-def placement_field_name(body: str) -> str:
-    return body.casefold().replace(" ", "_")
-
-
-def placement_summary(placement: PlacementResponse) -> str:
-    return f"{placement.sign} {placement.degree:.2f} degrees, house {placement.house}"
-
-
-def build_action_chart_payload(chart: ChartResponse) -> dict:
-    return {
-        "status": chart.status,
-        "success": chart.success,
-        "message": chart.message,
-        "chart_text": chart.chart_text,
-        "placements_text": chart.placements_text,
-        "body_count": chart.body_count,
-    }
-
-
-def build_chart_text_payload(chart: ChartResponse) -> dict:
-    return {
-        "result": (
-            f"SUCCESS | {chart.message} | body_count={chart.body_count} | "
-            f"{chart.placements_text}"
-        )
-    }
-
-
 def build_chart_response(
     year: int,
     month: int,
@@ -587,23 +525,15 @@ def build_chart_response(
         zodiac=ZODIAC,
         house_system=HOUSE_SYSTEM,
     )
-    placements_text = format_placements_text(placements)
-    chart_text = (
-        f"Chart calculated successfully for {birthplace}. "
-        f"Resolved place: {resolved_place}. Timezone: {timezone_name}. "
-        f"Verified Swiss Ephemeris placements: {placements_text}."
-    )
-
     return ChartResponse(
         status="success",
         success=True,
         message="Chart calculated successfully",
-        chart_text=chart_text,
-        placements_text=placements_text,
-        body_count=len(placements),
         birth_data=birth_data,
         placements=placements,
         houses=houses,
+        ascendant=ascendant,
+        midheaven=midheaven,
         aspects=[],
     )
 
@@ -633,7 +563,7 @@ def custom_openapi():
     )
 
     chart_operation = schema["paths"]["/chart"]["get"]
-    chart_operation["operationId"] = "get_astromeg_chart"
+    chart_operation["operationId"] = "calculate_chart"
     chart_operation["summary"] = "Calculate natal chart"
     chart_operation["description"] = (
         "Calculate a tropical natal chart with Placidus houses using Swiss Ephemeris only. "
@@ -687,7 +617,11 @@ def custom_openapi():
         "200": {
             "description": "Chart calculated successfully.",
             "content": {"application/json": {"schema": CHART_SUCCESS_SCHEMA}},
-        }
+        },
+        "default": {
+            "description": "Chart request could not be calculated.",
+            "content": {"application/json": {"schema": ERROR_SCHEMA}},
+        },
     }
 
     schema["openapi"] = "3.1.0"
@@ -701,7 +635,7 @@ app.openapi = custom_openapi
 
 
 def json_response(content: dict, status_code: int = 200) -> JSONResponse:
-    return JSONResponse(status_code=status_code, content=content, headers=NO_TRANSFORM_HEADERS)
+    return JSONResponse(status_code=status_code, content=content)
 
 
 @app.exception_handler(HTTPException)
@@ -795,7 +729,7 @@ def calculate_chart(
     resolved = resolve_birthplace(birthplace)
     timezone_offset = timezone_offset_hours(year, month, day, hour, minute, resolved.timezone_name)
 
-    chart = build_chart_response(
+    return build_chart_response(
         year=year,
         month=month,
         day=day,
@@ -808,52 +742,6 @@ def calculate_chart(
         resolved_place=resolved.birthplace_resolved,
         birthplace=birthplace,
     )
-    return json_response(build_chart_text_payload(chart))
-
-
-@app.get(
-    "/chart-text",
-    operation_id="get_astromeg_chart_text",
-    description=(
-        "Calculate a tropical natal chart with Placidus houses using Swiss Ephemeris. "
-        "Returns a single plain-text result field for ChatGPT Actions compatibility."
-    ),
-    responses={
-        200: {"description": "Chart calculated successfully.", "content": {"application/json": {"schema": CHART_SUCCESS_SCHEMA}}},
-        400: {"description": "Invalid birth data or unresolved birthplace.", "content": {"application/json": {"schema": ERROR_SCHEMA}}},
-        422: {"description": "Missing or invalid query parameter.", "content": {"application/json": {"schema": ERROR_SCHEMA}}},
-        500: {"description": "Unexpected calculation failure.", "content": {"application/json": {"schema": ERROR_SCHEMA}}},
-        502: {"description": "External lookup unavailable.", "content": {"application/json": {"schema": ERROR_SCHEMA}}},
-    },
-)
-def calculate_chart_text(
-    year: int,
-    month: int,
-    day: int,
-    hour: int,
-    minute: int,
-    birthplace: Annotated[
-        str,
-        Query(description="Birthplace to geocode, for example: Quezon City, Philippines."),
-    ],
-):
-    resolved = resolve_birthplace(birthplace)
-    timezone_offset = timezone_offset_hours(year, month, day, hour, minute, resolved.timezone_name)
-
-    chart = build_chart_response(
-        year=year,
-        month=month,
-        day=day,
-        hour=hour,
-        minute=minute,
-        latitude=resolved.latitude,
-        longitude=resolved.longitude,
-        timezone_offset=timezone_offset,
-        timezone_name=resolved.timezone_name,
-        resolved_place=resolved.birthplace_resolved,
-        birthplace=birthplace,
-    )
-    return json_response(build_chart_text_payload(chart))
 
 
 @app.get("/test", response_model=TestResponse)
