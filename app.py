@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, Response
 from pydantic import BaseModel, Field
 import swisseph as swe
 
@@ -27,11 +27,16 @@ EPHE_PATH = BASE_DIR / "ephe"
 EPHE_FILES = ("sepl_18.se1", "semo_18.se1", "seas_18.se1")
 USER_AGENT = "astromeg-oracle-api/1.0"
 GEOCODE_TIMEOUT_SECONDS = 3
-TIMEZONE_TIMEOUT_SECONDS = 3
 LOOKUP_ATTEMPTS = 2
 RETRY_DELAY_SECONDS = 0.25
 HOUSE_SYSTEM = "Placidus"
 ZODIAC = "Tropical"
+OPEN_METEO_API_KEY = os.environ.get("OPEN_METEO_API_KEY", "").strip()
+OPEN_METEO_GEOCODE_URL = (
+    "https://customer-geocoding-api.open-meteo.com/v1/search"
+    if OPEN_METEO_API_KEY
+    else "https://geocoding-api.open-meteo.com/v1/search"
+)
 
 os.environ["SE_EPHE_PATH"] = str(EPHE_PATH)
 swe.set_ephe_path(str(EPHE_PATH))
@@ -337,6 +342,22 @@ TEST_BIRTHPLACES = (
     "Tokyo, Japan",
 )
 
+COUNTRY_CODE_ALIASES = {
+    "australia": "AU",
+    "canada": "CA",
+    "france": "FR",
+    "japan": "JP",
+    "philippines": "PH",
+    "south africa": "ZA",
+    "uae": "AE",
+    "united arab emirates": "AE",
+    "uk": "GB",
+    "united kingdom": "GB",
+    "us": "US",
+    "usa": "US",
+    "united states": "US",
+}
+
 
 def normalize_place(value: str) -> str:
     return " ".join(value.casefold().replace(",", " , ").split()).replace(" ,", ",")
@@ -365,7 +386,7 @@ def house_for_degree(absolute_degree: float, cusps: list[float]) -> int:
     return 12
 
 
-def fetch_json(url: str, timeout: int) -> object:
+def fetch_json(url: str, timeout: int, log_url: str | None = None) -> object:
     request = UrlRequest(url, headers={"User-Agent": USER_AGENT})
     last_error = None
 
@@ -375,37 +396,86 @@ def fetch_json(url: str, timeout: int) -> object:
                 return json.load(response)
         except (OSError, URLError, TimeoutError, json.JSONDecodeError) as error:
             last_error = error
-            logger.warning("lookup failed attempt=%s url=%s error=%s", attempt + 1, url, error)
+            logger.warning("lookup failed attempt=%s url=%s error=%s", attempt + 1, log_url or url, error)
             if attempt < LOOKUP_ATTEMPTS - 1:
                 time.sleep(RETRY_DELAY_SECONDS)
 
     raise HTTPException(status_code=502, detail=f"External lookup unavailable: {last_error}")
 
 
-def geocode_birthplace(birthplace: str) -> tuple[float, float, str]:
-    query = urlencode({"q": birthplace, "format": "json", "limit": 1})
-    url = f"https://nominatim.openstreetmap.org/search?{query}"
-    matches = fetch_json(url, GEOCODE_TIMEOUT_SECONDS)
+def location_match_text(match: dict) -> str:
+    return normalize_place(
+        " ".join(str(match.get(field, "")) for field in ("name", "admin1", "admin2", "admin3", "admin4", "country", "country_code"))
+    )
+
+
+def location_label(match: dict, fallback: str) -> str:
+    labels = []
+    for field in ("name", "admin1", "country"):
+        value = str(match.get(field, "")).strip()
+        if value and value not in labels:
+            labels.append(value)
+    return ", ".join(labels) or fallback
+
+
+def select_location_match(birthplace: str, matches: list[dict]) -> dict:
+    parts = [part.strip() for part in birthplace.split(",") if part.strip()]
+    qualifiers = [normalize_place(part) for part in parts[1:]]
+    candidates = matches
+
+    if qualifiers:
+        country_code = COUNTRY_CODE_ALIASES.get(qualifiers[-1])
+        country_candidates = [
+            match
+            for match in matches
+            if (
+                country_code and str(match.get("country_code", "")).upper() == country_code
+            ) or normalize_place(str(match.get("country", ""))) == qualifiers[-1]
+        ]
+        if country_candidates:
+            candidates = country_candidates
+        elif country_code:
+            raise HTTPException(status_code=400, detail=f"Could not resolve birthplace in specified country: {birthplace}")
+
+    def score(match: dict) -> tuple[int, int]:
+        searchable = location_match_text(match)
+        qualifier_score = sum(1 for qualifier in qualifiers if qualifier in searchable)
+        return qualifier_score, int(match.get("population", 0) or 0)
+
+    return max(candidates, key=score)
+
+
+def geocode_birthplace(birthplace: str) -> PlaceResolution:
+    location_name = birthplace.split(",", maxsplit=1)[0].strip()
+    parameters = {"name": location_name, "count": 10, "language": "en", "format": "json"}
+    if OPEN_METEO_API_KEY:
+        parameters["apikey"] = OPEN_METEO_API_KEY
+    query = urlencode(parameters)
+    geocode_data = fetch_json(
+        f"{OPEN_METEO_GEOCODE_URL}?{query}",
+        GEOCODE_TIMEOUT_SECONDS,
+        log_url=OPEN_METEO_GEOCODE_URL,
+    )
+    matches = geocode_data.get("results") if isinstance(geocode_data, dict) else None
 
     if not isinstance(matches, list) or not matches:
         raise HTTPException(status_code=400, detail=f"Could not geocode birthplace: {birthplace}")
 
-    match = matches[0]
+    valid_matches = [candidate for candidate in matches if isinstance(candidate, dict)]
+    if not valid_matches:
+        raise HTTPException(status_code=502, detail="Malformed geocoder response: no valid location records.")
+
+    match = select_location_match(birthplace, valid_matches)
     try:
-        return float(match["lat"]), float(match["lon"]), match.get("display_name", birthplace)
+        return PlaceResolution(
+            query=birthplace,
+            birthplace_resolved=location_label(match, birthplace),
+            latitude=float(match["latitude"]),
+            longitude=float(match["longitude"]),
+            timezone_name=str(match["timezone"]),
+        )
     except (KeyError, TypeError, ValueError) as error:
         raise HTTPException(status_code=502, detail=f"Malformed geocoder response: {error}") from error
-
-
-def resolve_timezone_name(latitude: float, longitude: float) -> str:
-    query = urlencode({"latitude": latitude, "longitude": longitude})
-    url = f"https://timeapi.io/api/TimeZone/coordinate?{query}"
-    timezone_data = fetch_json(url, TIMEZONE_TIMEOUT_SECONDS)
-
-    if not isinstance(timezone_data, dict) or not timezone_data.get("timeZone"):
-        raise HTTPException(status_code=400, detail="Could not determine timezone for birthplace.")
-
-    return str(timezone_data["timeZone"])
 
 
 def resolve_birthplace(birthplace: str) -> PlaceResolution:
@@ -416,15 +486,7 @@ def resolve_birthplace(birthplace: str) -> PlaceResolution:
         return cached
 
     logger.info("birthplace cache miss query=%s", birthplace)
-    latitude, longitude, birthplace_resolved = geocode_birthplace(birthplace)
-    timezone_name = resolve_timezone_name(latitude, longitude)
-    resolution = PlaceResolution(
-        query=birthplace,
-        birthplace_resolved=birthplace_resolved,
-        latitude=latitude,
-        longitude=longitude,
-        timezone_name=timezone_name,
-    )
+    resolution = geocode_birthplace(birthplace)
     PLACE_CACHE[cache_key] = resolution
     return resolution
 
@@ -689,6 +751,11 @@ def home():
 @app.get("/robots.txt", include_in_schema=False)
 def robots_txt():
     return PlainTextResponse("User-agent: *\nDisallow: /\n")
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    return Response(status_code=204)
 
 
 @app.get("/health", response_model=HealthResponse)
