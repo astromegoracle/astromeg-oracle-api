@@ -112,6 +112,7 @@ class ChartResponse(BaseModel):
     status: str = "success"
     success: bool = True
     message: str = "Chart calculated successfully"
+    result: str
     birth_data: BirthDataResponse
     placements: list[PlacementResponse]
     houses: list[HouseCuspResponse]
@@ -158,11 +159,12 @@ class PlaceResolution(BaseModel):
 CHART_SUCCESS_SCHEMA = {
     "type": "object",
     "additionalProperties": True,
-    "required": ["status", "success", "message", "birth_data", "placements", "houses", "ascendant", "midheaven", "aspects"],
+    "required": ["status", "success", "message", "result", "birth_data", "placements", "houses", "ascendant", "midheaven", "aspects"],
     "properties": {
         "status": {"type": "string"},
         "success": {"type": "boolean"},
         "message": {"type": "string"},
+        "result": {"type": "string", "description": "Backward-compatible verified placement summary for previously imported Actions."},
         "birth_data": {
             "type": "object",
             "additionalProperties": True,
@@ -545,6 +547,14 @@ def calculate_houses(jd: float, latitude: float, longitude: float) -> tuple[list
     return house_cusps, cusp_values, ascmc[0], ascmc[1]
 
 
+def placement_summary(placements: list[PlacementResponse]) -> str:
+    formatted = "; ".join(
+        f"{placement.body}: {placement.sign} {placement.degree:.2f} degrees, house {placement.house}"
+        for placement in placements
+    )
+    return f"SUCCESS | Chart calculated successfully | body_count={len(placements)} | {formatted}"
+
+
 def build_chart_response(
     year: int,
     month: int,
@@ -591,6 +601,7 @@ def build_chart_response(
         status="success",
         success=True,
         message="Chart calculated successfully",
+        result=placement_summary(placements),
         birth_data=birth_data,
         placements=placements,
         houses=houses,
