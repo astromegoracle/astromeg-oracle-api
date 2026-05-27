@@ -4,7 +4,7 @@ import logging
 import os
 from pathlib import Path
 import time
-from typing import Annotated
+from typing import Annotated, Optional
 from urllib.error import URLError
 from urllib.parse import urlencode
 from urllib.request import Request as UrlRequest
@@ -899,10 +899,21 @@ def calculate_chart(
     hour: int,
     minute: int,
     birthplace: Annotated[
-        str,
+        Optional[str],
         Query(description="Birthplace to geocode, for example: Quezon City, Philippines."),
-    ],
+    ] = None,
 ):
+    if not birthplace:
+        return json_response(
+            {
+                "status": "error",
+                "success": False,
+                "message": "birthplace is required",
+                "details": "Missing required query parameter: birthplace.",
+                "http_status": 200,
+            }
+        )
+
     resolved = resolve_birthplace(birthplace)
     timezone_offset = timezone_offset_hours(year, month, day, hour, minute, resolved.timezone_name)
 
