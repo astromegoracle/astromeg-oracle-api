@@ -381,8 +381,6 @@ def persist_place_cache() -> None:
         logger.warning("place cache save failed path=%s error=%s", PLACE_CACHE_FILE, error)
 
 
-PLACE_CACHE: dict[str, PlaceResolution] = dict(COMMON_PLACE_CACHE)
-PLACE_CACHE.update(load_persistent_place_cache())
 SIGNS = (
     "Aries",
     "Taurus",
@@ -444,6 +442,60 @@ COUNTRY_CODE_ALIASES = {
 
 def normalize_place(value: str) -> str:
     return " ".join(value.casefold().replace(",", " , ").split()).replace(" ,", ",")
+
+
+def compact_place_key(value: str) -> str:
+    return " ".join(value.casefold().replace(",", " ").split())
+
+
+def cache_keys_for_place(value: str) -> list[str]:
+    keys = [normalize_place(value), compact_place_key(value)]
+    return list(dict.fromkeys(key for key in keys if key))
+
+
+def birthplace_search_attempts(birthplace: str) -> list[tuple[str, str]]:
+    stripped = birthplace.strip()
+    if "," in stripped:
+        return [(stripped.split(",", maxsplit=1)[0].strip(), stripped)]
+
+    attempts: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+
+    def add_attempt(search_name: str, selector: str) -> None:
+        candidate = (search_name.strip(), selector.strip())
+        if candidate[0] and candidate not in seen:
+            attempts.append(candidate)
+            seen.add(candidate)
+
+    compact = compact_place_key(stripped)
+    for country_name in sorted(COUNTRY_CODE_ALIASES, key=len, reverse=True):
+        suffix = f" {country_name}"
+        if compact.endswith(suffix):
+            city = compact[: -len(suffix)].strip()
+            if city:
+                add_attempt(city, f"{city}, {country_name}")
+
+    words = compact.split()
+    for split_index in range(len(words) - 1, 0, -1):
+        city = " ".join(words[:split_index])
+        qualifier = " ".join(words[split_index:])
+        add_attempt(city, f"{city}, {qualifier}")
+
+    add_attempt(stripped, stripped)
+    return attempts
+
+
+def add_place_cache_aliases(cache: dict[str, PlaceResolution]) -> None:
+    for cache_key, resolution in list(cache.items()):
+        for alias in cache_keys_for_place(cache_key):
+            cache.setdefault(alias, resolution)
+        for alias in cache_keys_for_place(resolution.query):
+            cache.setdefault(alias, resolution)
+
+
+PLACE_CACHE: dict[str, PlaceResolution] = dict(COMMON_PLACE_CACHE)
+PLACE_CACHE.update(load_persistent_place_cache())
+add_place_cache_aliases(PLACE_CACHE)
 
 
 def zodiac_sign(absolute_degree: float) -> str:
@@ -530,46 +582,65 @@ def select_location_match(birthplace: str, matches: list[dict]) -> dict:
 
 def geocode_birthplace(birthplace: str) -> PlaceResolution:
     try:
-        location_name = birthplace.split(",", maxsplit=1)[0].strip()
-        parameters = {"name": location_name, "count": 10, "language": "en", "format": "json"}
-        if OPEN_METEO_API_KEY:
-            parameters["apikey"] = OPEN_METEO_API_KEY
-        query = urlencode(parameters)
+        last_error = f"Could not geocode birthplace: {birthplace}"
+        for location_name, selection_birthplace in birthplace_search_attempts(birthplace):
+            parameters = {"name": location_name, "count": 10, "language": "en", "format": "json"}
+            if OPEN_METEO_API_KEY:
+                parameters["apikey"] = OPEN_METEO_API_KEY
+            query = urlencode(parameters)
 
-        logger.info("geocode start query=%s provider=open-meteo endpoint=%s", birthplace, OPEN_METEO_GEOCODE_URL)
-        geocode_data = fetch_json(
-            f"{OPEN_METEO_GEOCODE_URL}?{query}",
-            GEOCODE_TIMEOUT_SECONDS,
-            log_url=OPEN_METEO_GEOCODE_URL,
-        )
-        matches = geocode_data.get("results") if isinstance(geocode_data, dict) else None
-        match_count = len(matches) if isinstance(matches, list) else 0
-        logger.info("geocode response query=%s provider=open-meteo matches=%s", birthplace, match_count)
+            logger.info(
+                "geocode start query=%s search_name=%s selector=%s provider=open-meteo endpoint=%s",
+                birthplace,
+                location_name,
+                selection_birthplace,
+                OPEN_METEO_GEOCODE_URL,
+            )
+            geocode_data = fetch_json(
+                f"{OPEN_METEO_GEOCODE_URL}?{query}",
+                GEOCODE_TIMEOUT_SECONDS,
+                log_url=OPEN_METEO_GEOCODE_URL,
+            )
+            matches = geocode_data.get("results") if isinstance(geocode_data, dict) else None
+            match_count = len(matches) if isinstance(matches, list) else 0
+            logger.info(
+                "geocode response query=%s search_name=%s provider=open-meteo matches=%s",
+                birthplace,
+                location_name,
+                match_count,
+            )
 
-        if not isinstance(matches, list) or not matches:
-            raise HTTPException(status_code=400, detail=f"Could not geocode birthplace: {birthplace}")
+            if not isinstance(matches, list) or not matches:
+                continue
 
-        valid_matches = [candidate for candidate in matches if isinstance(candidate, dict)]
-        if not valid_matches:
-            raise HTTPException(status_code=502, detail="Malformed geocoder response: no valid location records.")
+            valid_matches = [candidate for candidate in matches if isinstance(candidate, dict)]
+            if not valid_matches:
+                raise HTTPException(status_code=502, detail="Malformed geocoder response: no valid location records.")
 
-        match = select_location_match(birthplace, valid_matches)
-        resolution = PlaceResolution(
-            query=birthplace,
-            birthplace_resolved=location_label(match, birthplace),
-            latitude=float(match["latitude"]),
-            longitude=float(match["longitude"]),
-            timezone_name=str(match["timezone"]),
-        )
-        logger.info(
-            "geocode success query=%s resolved=%s latitude=%s longitude=%s timezone=%s",
-            birthplace,
-            resolution.birthplace_resolved,
-            resolution.latitude,
-            resolution.longitude,
-            resolution.timezone_name,
-        )
-        return resolution
+            try:
+                match = select_location_match(selection_birthplace, valid_matches)
+            except HTTPException as error:
+                last_error = str(error.detail)
+                continue
+
+            resolution = PlaceResolution(
+                query=birthplace,
+                birthplace_resolved=location_label(match, birthplace),
+                latitude=float(match["latitude"]),
+                longitude=float(match["longitude"]),
+                timezone_name=str(match["timezone"]),
+            )
+            logger.info(
+                "geocode success query=%s resolved=%s latitude=%s longitude=%s timezone=%s",
+                birthplace,
+                resolution.birthplace_resolved,
+                resolution.latitude,
+                resolution.longitude,
+                resolution.timezone_name,
+            )
+            return resolution
+
+        raise HTTPException(status_code=400, detail=last_error)
     except HTTPException:
         logger.warning("geocode failed query=%s", birthplace)
         raise
@@ -582,15 +653,19 @@ def geocode_birthplace(birthplace: str) -> PlaceResolution:
 
 
 def resolve_birthplace(birthplace: str) -> PlaceResolution:
-    cache_key = normalize_place(birthplace)
-    cached = PLACE_CACHE.get(cache_key)
-    if cached:
-        logger.info("birthplace cache hit query=%s resolved=%s", birthplace, cached.birthplace_resolved)
-        return cached
+    cache_keys = cache_keys_for_place(birthplace)
+    for cache_key in cache_keys:
+        cached = PLACE_CACHE.get(cache_key)
+        if cached:
+            logger.info("birthplace cache hit query=%s key=%s resolved=%s", birthplace, cache_key, cached.birthplace_resolved)
+            return cached
 
     logger.info("birthplace cache miss query=%s", birthplace)
     resolution = geocode_birthplace(birthplace)
-    PLACE_CACHE[cache_key] = resolution
+    for cache_key in cache_keys_for_place(birthplace):
+        PLACE_CACHE[cache_key] = resolution
+    for cache_key in cache_keys_for_place(resolution.query):
+        PLACE_CACHE[cache_key] = resolution
     persist_place_cache()
     return resolution
 
