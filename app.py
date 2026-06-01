@@ -40,6 +40,7 @@ OPEN_METEO_GEOCODE_URL = (
 )
 JULIAN_DAY_UNIX_EPOCH = 2440587.5
 SOLAR_RETURN_TOLERANCE_ARCSECONDS = 1.0
+SOLAR_RETURN_SOLVE_TOLERANCE_ARCSECONDS = 0.001
 SOLAR_RETURN_SEARCH_STEP_DAYS = 0.25
 SOLAR_RETURN_MAX_ITERATIONS = 80
 
@@ -194,7 +195,9 @@ CHART_SUCCESS_SCHEMA = {
         "placements",
         "houses",
         "ascendant",
+        "ascendant_position",
         "midheaven",
+        "midheaven_position",
         "aspects",
     ],
     "properties": {
@@ -227,6 +230,7 @@ CHART_SUCCESS_SCHEMA = {
                     "body": {"type": "string"},
                     "sign": {"type": "string"},
                     "degree": {"type": "number"},
+                    "position": {"type": "object", "additionalProperties": True},
                     "house": {"type": "integer"},
                 },
             },
@@ -240,11 +244,14 @@ CHART_SUCCESS_SCHEMA = {
                     "house": {"type": "integer"},
                     "sign": {"type": "string"},
                     "degree": {"type": "number"},
+                    "position": {"type": "object", "additionalProperties": True},
                 },
             },
         },
         "ascendant": {"type": "number"},
+        "ascendant_position": {"type": "object", "additionalProperties": True},
         "midheaven": {"type": "number"},
+        "midheaven_position": {"type": "object", "additionalProperties": True},
         "aspects": {
             "type": "array",
             "items": {"type": "object", "additionalProperties": True},
@@ -311,6 +318,10 @@ SOLAR_RETURN_RESPONSE_SCHEMA = {
         "exact_return_utc": {"type": "string"},
         "exact_return_local": {"type": "string"},
         "return_location": {"type": "string"},
+        "return_location_resolved": {"type": "string"},
+        "return_location_latitude": {"type": "number"},
+        "return_location_longitude": {"type": "number"},
+        "return_location_timezone": {"type": "string"},
         "chart": {"type": "object", "additionalProperties": True},
         "birth_data": {"type": "object", "additionalProperties": True},
         "placements": CHART_SUCCESS_SCHEMA["properties"]["placements"],
@@ -566,6 +577,36 @@ def zodiac_degree(absolute_degree: float) -> float:
     return absolute_degree % 30
 
 
+def zodiac_position(absolute_degree: float) -> dict[str, object]:
+    normalized = absolute_degree % 360.0
+    sign = zodiac_sign(normalized)
+    degree_float = zodiac_degree(normalized)
+    degree = int(degree_float)
+    minute_float = (degree_float - degree) * 60.0
+    minute = int(minute_float)
+    second = round((minute_float - minute) * 60.0, 2)
+
+    if second >= 60.0:
+        second = 0.0
+        minute += 1
+    if minute >= 60:
+        minute = 0
+        degree += 1
+    if degree >= 30:
+        degree = 0
+        sign = zodiac_sign(normalized + 30.0)
+
+    return {
+        "sign": sign,
+        "degree": degree,
+        "minute": minute,
+        "second": second,
+        "decimal_degree": degree_float,
+        "absolute_degree": normalized,
+        "formatted": f"{sign} {degree}\u00b0{minute:02d}'{second:05.2f}\"",
+    }
+
+
 def signed_longitude_delta(longitude: float, target_longitude: float) -> float:
     return ((longitude - target_longitude + 180.0) % 360.0) - 180.0
 
@@ -605,10 +646,11 @@ def return_search_center_utc(return_year: int, birth_month: int, birth_day: int)
 def bisection_solar_return_jd(low_jd: float, high_jd: float, natal_sun_longitude: float) -> float:
     low_delta = signed_longitude_delta(sun_longitude_at_jd(low_jd), natal_sun_longitude)
     high_delta = signed_longitude_delta(sun_longitude_at_jd(high_jd), natal_sun_longitude)
+    solve_tolerance = SOLAR_RETURN_SOLVE_TOLERANCE_ARCSECONDS / 3600.0
 
-    if abs(low_delta) <= SOLAR_RETURN_TOLERANCE_ARCSECONDS / 3600.0:
+    if abs(low_delta) <= solve_tolerance:
         return low_jd
-    if abs(high_delta) <= SOLAR_RETURN_TOLERANCE_ARCSECONDS / 3600.0:
+    if abs(high_delta) <= solve_tolerance:
         return high_jd
     if low_delta > 0 or high_delta < 0:
         raise HTTPException(status_code=500, detail="Solar return bracket does not contain a forward Sun crossing.")
@@ -616,7 +658,7 @@ def bisection_solar_return_jd(low_jd: float, high_jd: float, natal_sun_longitude
     for _ in range(SOLAR_RETURN_MAX_ITERATIONS):
         mid_jd = (low_jd + high_jd) / 2.0
         mid_delta = signed_longitude_delta(sun_longitude_at_jd(mid_jd), natal_sun_longitude)
-        if abs(mid_delta) <= SOLAR_RETURN_TOLERANCE_ARCSECONDS / 3600.0:
+        if abs(mid_delta) <= solve_tolerance:
             return mid_jd
         if mid_delta < 0:
             low_jd = mid_jd
@@ -642,8 +684,6 @@ def find_exact_solar_return_jd(natal_sun_longitude: float, return_year: int, bir
         jd = start_jd + SOLAR_RETURN_SEARCH_STEP_DAYS
         while jd <= end_jd:
             delta = signed_longitude_delta(sun_longitude_at_jd(jd), natal_sun_longitude)
-            if abs(delta) <= SOLAR_RETURN_TOLERANCE_ARCSECONDS / 3600.0:
-                return jd
             if previous_delta <= 0 <= delta and abs(delta - previous_delta) < 5.0:
                 return bisection_solar_return_jd(previous_jd, jd, natal_sun_longitude)
             previous_jd = jd
@@ -1011,6 +1051,7 @@ def action_chart_payload(chart: ChartResponse) -> dict:
                 "body": placement.body,
                 "sign": placement.sign,
                 "degree": round(placement.degree, 2),
+                "position": zodiac_position(placement.absolute_degree),
                 "house": placement.house,
             }
             for placement in chart.placements
@@ -1020,11 +1061,14 @@ def action_chart_payload(chart: ChartResponse) -> dict:
                 "house": house.house,
                 "sign": house.sign,
                 "degree": round(house.degree, 2),
+                "position": zodiac_position(house.absolute_degree),
             }
             for house in chart.houses
         ],
         "ascendant": round(chart.ascendant % 360, 2),
+        "ascendant_position": zodiac_position(chart.ascendant),
         "midheaven": round(chart.midheaven % 360, 2),
+        "midheaven_position": zodiac_position(chart.midheaven),
         "aspects": [],
     }
 
@@ -1069,13 +1113,18 @@ def solar_return_payload(
         "birthplace_resolved": natal_place.birthplace_resolved,
         "return_location": request.return_location,
         "return_location_resolved": return_place.birthplace_resolved,
+        "return_location_latitude": return_place.latitude,
+        "return_location_longitude": return_place.longitude,
+        "return_location_timezone": return_place.timezone_name,
         "chart": {
             "summary": return_chart.chart,
             "chart_text": return_chart.chart_text,
             "placements_text": return_chart.placements_text,
             "body_count": return_chart.body_count,
             "ascendant": chart_payload["ascendant"],
+            "ascendant_position": chart_payload["ascendant_position"],
             "midheaven": chart_payload["midheaven"],
+            "midheaven_position": chart_payload["midheaven_position"],
             "timezone": return_place.timezone_name,
         },
         "birth_data": chart_payload["birth_data"],
