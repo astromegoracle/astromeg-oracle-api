@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import json
 import logging
 import os
@@ -38,6 +38,10 @@ OPEN_METEO_GEOCODE_URL = (
     if OPEN_METEO_API_KEY
     else "https://geocoding-api.open-meteo.com/v1/search"
 )
+JULIAN_DAY_UNIX_EPOCH = 2440587.5
+SOLAR_RETURN_TOLERANCE_ARCSECONDS = 1.0
+SOLAR_RETURN_SEARCH_STEP_DAYS = 0.25
+SOLAR_RETURN_MAX_ITERATIONS = 80
 
 os.environ["SE_EPHE_PATH"] = str(EPHE_PATH)
 swe.set_ephe_path(str(EPHE_PATH))
@@ -162,6 +166,17 @@ class PlaceResolution(BaseModel):
     timezone_name: str
 
 
+class SolarReturnRequest(BaseModel):
+    birth_year: int
+    birth_month: int
+    birth_day: int
+    birth_hour: int
+    birth_minute: int
+    birthplace: str
+    return_year: int
+    return_location: str
+
+
 CHART_SUCCESS_SCHEMA = {
     "type": "object",
     "additionalProperties": True,
@@ -255,6 +270,51 @@ CHART_RESPONSE_SCHEMA = {
     "properties": {
         **CHART_SUCCESS_SCHEMA["properties"],
         **ERROR_SCHEMA["properties"],
+    },
+}
+SOLAR_RETURN_REQUEST_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": [
+        "birth_year",
+        "birth_month",
+        "birth_day",
+        "birth_hour",
+        "birth_minute",
+        "birthplace",
+        "return_year",
+        "return_location",
+    ],
+    "properties": {
+        "birth_year": {"type": "integer", "example": 1972},
+        "birth_month": {"type": "integer", "example": 7},
+        "birth_day": {"type": "integer", "example": 31},
+        "birth_hour": {"type": "integer", "example": 22},
+        "birth_minute": {"type": "integer", "example": 50},
+        "birthplace": {"type": "string", "example": "Quezon City, Philippines"},
+        "return_year": {"type": "integer", "example": 2026},
+        "return_location": {"type": "string", "example": "Quezon City, Philippines"},
+    },
+}
+SOLAR_RETURN_RESPONSE_SCHEMA = {
+    "type": "object",
+    "additionalProperties": True,
+    "required": ["status", "success", "message", "verified_solar_return"],
+    "properties": {
+        "status": {"type": "string"},
+        "success": {"type": "boolean"},
+        "message": {"type": "string"},
+        "verified_solar_return": {"type": "boolean"},
+        "natal_sun_longitude": {"type": "number"},
+        "return_sun_longitude": {"type": "number"},
+        "longitude_delta_arcseconds": {"type": "number"},
+        "exact_return_utc": {"type": "string"},
+        "exact_return_local": {"type": "string"},
+        "return_location": {"type": "string"},
+        "chart": {"type": "object", "additionalProperties": True},
+        "birth_data": {"type": "object", "additionalProperties": True},
+        "placements": CHART_SUCCESS_SCHEMA["properties"]["placements"],
+        "houses": CHART_SUCCESS_SCHEMA["properties"]["houses"],
     },
 }
 
@@ -506,6 +566,93 @@ def zodiac_degree(absolute_degree: float) -> float:
     return absolute_degree % 30
 
 
+def signed_longitude_delta(longitude: float, target_longitude: float) -> float:
+    return ((longitude - target_longitude + 180.0) % 360.0) - 180.0
+
+
+def sun_longitude_at_jd(jd: float) -> float:
+    try:
+        position, _flags = swe.calc_ut(jd, swe.SUN)
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=f"Could not calculate Sun longitude: {error}") from error
+    return float(position[0] % 360.0)
+
+
+def julian_day_to_utc_datetime(jd: float) -> datetime:
+    return datetime(1970, 1, 1, tzinfo=timezone.utc) + timedelta(days=jd - JULIAN_DAY_UNIX_EPOCH)
+
+
+def datetime_to_julian_day_utc(value: datetime) -> float:
+    utc_value = value.astimezone(timezone.utc)
+    hour = (
+        utc_value.hour
+        + (utc_value.minute / 60.0)
+        + (utc_value.second / 3600.0)
+        + (utc_value.microsecond / 3_600_000_000.0)
+    )
+    return swe.julday(utc_value.year, utc_value.month, utc_value.day, hour)
+
+
+def return_search_center_utc(return_year: int, birth_month: int, birth_day: int) -> datetime:
+    try:
+        return datetime(return_year, birth_month, birth_day, tzinfo=timezone.utc)
+    except ValueError as error:
+        if birth_month == 2 and birth_day == 29:
+            return datetime(return_year, 2, 28, tzinfo=timezone.utc)
+        raise HTTPException(status_code=400, detail=f"Invalid return date window: {error}") from error
+
+
+def bisection_solar_return_jd(low_jd: float, high_jd: float, natal_sun_longitude: float) -> float:
+    low_delta = signed_longitude_delta(sun_longitude_at_jd(low_jd), natal_sun_longitude)
+    high_delta = signed_longitude_delta(sun_longitude_at_jd(high_jd), natal_sun_longitude)
+
+    if abs(low_delta) <= SOLAR_RETURN_TOLERANCE_ARCSECONDS / 3600.0:
+        return low_jd
+    if abs(high_delta) <= SOLAR_RETURN_TOLERANCE_ARCSECONDS / 3600.0:
+        return high_jd
+    if low_delta > 0 or high_delta < 0:
+        raise HTTPException(status_code=500, detail="Solar return bracket does not contain a forward Sun crossing.")
+
+    for _ in range(SOLAR_RETURN_MAX_ITERATIONS):
+        mid_jd = (low_jd + high_jd) / 2.0
+        mid_delta = signed_longitude_delta(sun_longitude_at_jd(mid_jd), natal_sun_longitude)
+        if abs(mid_delta) <= SOLAR_RETURN_TOLERANCE_ARCSECONDS / 3600.0:
+            return mid_jd
+        if mid_delta < 0:
+            low_jd = mid_jd
+        else:
+            high_jd = mid_jd
+
+    return (low_jd + high_jd) / 2.0
+
+
+def find_exact_solar_return_jd(natal_sun_longitude: float, return_year: int, birth_month: int, birth_day: int) -> float:
+    center = return_search_center_utc(return_year, birth_month, birth_day)
+    search_windows = (
+        (center - timedelta(days=5), center + timedelta(days=5)),
+        (datetime(return_year, 1, 1, tzinfo=timezone.utc), datetime(return_year + 1, 1, 1, tzinfo=timezone.utc)),
+    )
+
+    for start_dt, end_dt in search_windows:
+        start_jd = datetime_to_julian_day_utc(start_dt)
+        end_jd = datetime_to_julian_day_utc(end_dt)
+        previous_jd = start_jd
+        previous_delta = signed_longitude_delta(sun_longitude_at_jd(previous_jd), natal_sun_longitude)
+
+        jd = start_jd + SOLAR_RETURN_SEARCH_STEP_DAYS
+        while jd <= end_jd:
+            delta = signed_longitude_delta(sun_longitude_at_jd(jd), natal_sun_longitude)
+            if abs(delta) <= SOLAR_RETURN_TOLERANCE_ARCSECONDS / 3600.0:
+                return jd
+            if previous_delta <= 0 <= delta and abs(delta - previous_delta) < 5.0:
+                return bisection_solar_return_jd(previous_jd, jd, natal_sun_longitude)
+            previous_jd = jd
+            previous_delta = delta
+            jd += SOLAR_RETURN_SEARCH_STEP_DAYS
+
+    raise HTTPException(status_code=500, detail="Could not find exact solar return crossing for return year.")
+
+
 def house_for_degree(absolute_degree: float, cusps: list[float]) -> int:
     point = absolute_degree % 360
     for index, start in enumerate(cusps):
@@ -740,7 +887,8 @@ def chart_summary(placements: list[PlacementResponse]) -> str:
     return f"VERIFIED_ASTROMEG_CHART_DATA\n{formatted}"
 
 
-def build_chart_response(
+def build_chart_response_from_jd(
+    jd: float,
     year: int,
     month: int,
     day: int,
@@ -753,7 +901,6 @@ def build_chart_response(
     resolved_place: str,
     birthplace: str,
 ) -> ChartResponse:
-    jd = calculate_julian_day(year, month, day, hour, minute, timezone_offset)
     planets = calculate_planets(jd)
     houses, cusp_values, ascendant, midheaven = calculate_houses(jd, latitude, longitude)
     planet_values = planets.model_dump(by_alias=True)
@@ -803,6 +950,36 @@ def build_chart_response(
     )
 
 
+def build_chart_response(
+    year: int,
+    month: int,
+    day: int,
+    hour: int,
+    minute: int,
+    latitude: float,
+    longitude: float,
+    timezone_offset: float,
+    timezone_name: str,
+    resolved_place: str,
+    birthplace: str,
+) -> ChartResponse:
+    jd = calculate_julian_day(year, month, day, hour, minute, timezone_offset)
+    return build_chart_response_from_jd(
+        jd=jd,
+        year=year,
+        month=month,
+        day=day,
+        hour=hour,
+        minute=minute,
+        latitude=latitude,
+        longitude=longitude,
+        timezone_offset=timezone_offset,
+        timezone_name=timezone_name,
+        resolved_place=resolved_place,
+        birthplace=birthplace,
+    )
+
+
 def action_chart_payload(chart: ChartResponse) -> dict:
     return {
         "status": "success",
@@ -849,6 +1026,62 @@ def action_chart_payload(chart: ChartResponse) -> dict:
         "ascendant": round(chart.ascendant % 360, 2),
         "midheaven": round(chart.midheaven % 360, 2),
         "aspects": [],
+    }
+
+
+def solar_return_payload(
+    request: SolarReturnRequest,
+    natal_place: PlaceResolution,
+    return_place: PlaceResolution,
+    exact_return_jd: float,
+    natal_sun_longitude: float,
+    return_sun_longitude: float,
+    return_chart: ChartResponse,
+) -> dict:
+    exact_return_utc = julian_day_to_utc_datetime(exact_return_jd)
+    exact_return_local = exact_return_utc.astimezone(ZoneInfo(return_place.timezone_name))
+    longitude_delta_arcseconds = abs(signed_longitude_delta(return_sun_longitude, natal_sun_longitude)) * 3600.0
+    verified_solar_return = longitude_delta_arcseconds <= SOLAR_RETURN_TOLERANCE_ARCSECONDS
+    chart_payload = action_chart_payload(return_chart)
+
+    if not verified_solar_return:
+        return {
+            "status": "error",
+            "success": False,
+            "verified_solar_return": False,
+            "message": "Exact solar return could not be verified within 1 arcsecond.",
+            "natal_sun_longitude": natal_sun_longitude,
+            "return_sun_longitude": return_sun_longitude,
+            "longitude_delta_arcseconds": longitude_delta_arcseconds,
+        }
+
+    return {
+        "status": "success",
+        "success": True,
+        "message": "Exact solar return calculated successfully",
+        "verified_solar_return": True,
+        "natal_sun_longitude": natal_sun_longitude,
+        "return_sun_longitude": return_sun_longitude,
+        "longitude_delta_arcseconds": longitude_delta_arcseconds,
+        "exact_return_utc": exact_return_utc.isoformat().replace("+00:00", "Z"),
+        "exact_return_local": exact_return_local.isoformat(),
+        "birthplace": request.birthplace,
+        "birthplace_resolved": natal_place.birthplace_resolved,
+        "return_location": request.return_location,
+        "return_location_resolved": return_place.birthplace_resolved,
+        "chart": {
+            "summary": return_chart.chart,
+            "chart_text": return_chart.chart_text,
+            "placements_text": return_chart.placements_text,
+            "body_count": return_chart.body_count,
+            "ascendant": chart_payload["ascendant"],
+            "midheaven": chart_payload["midheaven"],
+            "timezone": return_place.timezone_name,
+        },
+        "birth_data": chart_payload["birth_data"],
+        "placements": chart_payload["placements"],
+        "houses": chart_payload["houses"],
+        "aspects": chart_payload["aspects"],
     }
 
 
@@ -939,9 +1172,34 @@ def custom_openapi():
             "content": {"application/json": {"schema": ERROR_SCHEMA}},
         },
     }
+    solar_operation = {
+        "summary": "Calculate exact solar return",
+        "description": (
+            "Calculate an exact Solar Return by solving the precise moment in return_year when the "
+            "transiting Sun longitude equals the natal Sun longitude. Do not use /chart for Solar Returns."
+        ),
+        "operationId": "calculate_solar_return",
+        "requestBody": {
+            "required": True,
+            "content": {"application/json": {"schema": SOLAR_RETURN_REQUEST_SCHEMA}},
+        },
+        "responses": {
+            "200": {
+                "description": "Exact Solar Return result or readable application-level error.",
+                "content": {"application/json": {"schema": SOLAR_RETURN_RESPONSE_SCHEMA}},
+            },
+            "default": {
+                "description": "Solar Return request could not be calculated.",
+                "content": {"application/json": {"schema": ERROR_SCHEMA}},
+            },
+        },
+    }
 
     schema["openapi"] = "3.1.0"
-    schema["paths"] = {"/chart": {"get": chart_operation}}
+    schema["paths"] = {
+        "/chart": {"get": chart_operation},
+        "/calculate_solar_return": {"post": solar_operation},
+    }
     schema.pop("components", None)
     app.openapi_schema = schema
     return app.openapi_schema
@@ -1176,6 +1434,89 @@ def calculate_chart(
         birthplace=birthplace,
     )
     return json_response(action_chart_payload(chart))
+
+
+@app.post(
+    "/calculate_solar_return",
+    operation_id="calculate_solar_return",
+    description=(
+        "Calculate an exact Solar Return. This endpoint first calculates the natal Sun longitude, "
+        "then solves for the exact return-year moment when the transiting Sun equals that full-precision longitude."
+    ),
+    responses={
+        200: {"description": "Exact solar return calculation result.", "content": {"application/json": {"schema": {"type": "object", "additionalProperties": True}}}},
+    },
+)
+def calculate_solar_return(request: SolarReturnRequest):
+    logger.info(
+        "solar return start birthplace=%s return_location=%s return_year=%s",
+        request.birthplace,
+        request.return_location,
+        request.return_year,
+    )
+    natal_place = resolve_birthplace(request.birthplace)
+    return_place = resolve_birthplace(request.return_location)
+
+    natal_timezone_offset = timezone_offset_hours(
+        request.birth_year,
+        request.birth_month,
+        request.birth_day,
+        request.birth_hour,
+        request.birth_minute,
+        natal_place.timezone_name,
+    )
+    natal_jd = calculate_julian_day(
+        request.birth_year,
+        request.birth_month,
+        request.birth_day,
+        request.birth_hour,
+        request.birth_minute,
+        natal_timezone_offset,
+    )
+    natal_sun_longitude = sun_longitude_at_jd(natal_jd)
+    exact_return_jd = find_exact_solar_return_jd(
+        natal_sun_longitude,
+        request.return_year,
+        request.birth_month,
+        request.birth_day,
+    )
+    return_sun_longitude = sun_longitude_at_jd(exact_return_jd)
+    exact_return_utc = julian_day_to_utc_datetime(exact_return_jd)
+    exact_return_local = exact_return_utc.astimezone(ZoneInfo(return_place.timezone_name))
+    return_offset = exact_return_local.utcoffset()
+    if return_offset is None:
+        raise HTTPException(status_code=400, detail=f"Could not determine return timezone offset: {return_place.timezone_name}")
+
+    return_chart = build_chart_response_from_jd(
+        jd=exact_return_jd,
+        year=exact_return_local.year,
+        month=exact_return_local.month,
+        day=exact_return_local.day,
+        hour=exact_return_local.hour,
+        minute=exact_return_local.minute,
+        latitude=return_place.latitude,
+        longitude=return_place.longitude,
+        timezone_offset=return_offset.total_seconds() / 3600.0,
+        timezone_name=return_place.timezone_name,
+        resolved_place=return_place.birthplace_resolved,
+        birthplace=request.return_location,
+    )
+
+    payload = solar_return_payload(
+        request=request,
+        natal_place=natal_place,
+        return_place=return_place,
+        exact_return_jd=exact_return_jd,
+        natal_sun_longitude=natal_sun_longitude,
+        return_sun_longitude=return_sun_longitude,
+        return_chart=return_chart,
+    )
+    logger.info(
+        "solar return complete verified=%s delta_arcseconds=%s",
+        payload.get("verified_solar_return"),
+        payload.get("longitude_delta_arcseconds"),
+    )
+    return json_response(payload)
 
 
 @app.get("/test", response_model=TestResponse)
