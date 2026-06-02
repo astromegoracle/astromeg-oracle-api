@@ -342,6 +342,11 @@ SOLAR_RETURN_RESPONSE_SCHEMA = {
         "birth_data": {"type": "object", "additionalProperties": True},
         "placements": CHART_SUCCESS_SCHEMA["properties"]["placements"],
         "houses": CHART_SUCCESS_SCHEMA["properties"]["houses"],
+        "verified_chart_data": {"type": "boolean"},
+        "chart_text": {"type": "string"},
+        "result": {"type": "string"},
+        "placements_text": {"type": "string"},
+        "body_count": {"type": "integer"},
     },
 }
 PROGRESSED_CHART_REQUEST_SCHEMA = {
@@ -398,6 +403,11 @@ PROGRESSED_CHART_RESPONSE_SCHEMA = {
         "chart": {"type": "object", "additionalProperties": True},
         "placements": CHART_SUCCESS_SCHEMA["properties"]["placements"],
         "houses": CHART_SUCCESS_SCHEMA["properties"]["houses"],
+        "verified_chart_data": {"type": "boolean"},
+        "chart_text": {"type": "string"},
+        "result": {"type": "string"},
+        "placements_text": {"type": "string"},
+        "body_count": {"type": "integer"},
         "aspects": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
     },
 }
@@ -446,6 +456,11 @@ PROGRESSED_SOLAR_ARC_ANGLES_RESPONSE_SCHEMA = {
         "calculation_location_longitude": {"type": "number"},
         "calculation_location_timezone": {"type": "string"},
         "chart": {"type": "object", "additionalProperties": True},
+        "verified_chart_data": {"type": "boolean"},
+        "chart_text": {"type": "string"},
+        "result": {"type": "string"},
+        "placements_text": {"type": "string"},
+        "body_count": {"type": "integer"},
         "aspects": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
     },
 }
@@ -486,6 +501,9 @@ PROGRESSED_SOLAR_LONGITUDE_CHART_RESPONSE_SCHEMA = {
         "house_assignment_method": {"type": "string"},
         "progressed_house_cusps": CHART_SUCCESS_SCHEMA["properties"]["houses"],
         "placements": CHART_SUCCESS_SCHEMA["properties"]["placements"],
+        "verified_chart_data": {"type": "boolean"},
+        "chart": {"type": "string"},
+        "result": {"type": "string"},
         "chart_text": {"type": "string"},
         "placements_text": {"type": "string"},
         "body_count": {"type": "integer"},
@@ -1469,6 +1487,11 @@ def solar_return_payload(
         "placements": chart_payload["placements"],
         "houses": chart_payload["houses"],
         "aspects": chart_payload["aspects"],
+        "verified_chart_data": True,
+        "chart_text": return_chart.chart_text,
+        "result": return_chart.result,
+        "placements_text": return_chart.placements_text,
+        "body_count": return_chart.body_count,
     }
 
 
@@ -1633,6 +1656,11 @@ def progressed_chart_payload(
         "placements": chart_payload["placements"],
         "houses": chart_payload["houses"],
         "aspects": chart_payload["aspects"],
+        "verified_chart_data": True,
+        "chart_text": progressed_chart.chart_text,
+        "result": progressed_chart.result,
+        "placements_text": progressed_chart.placements_text,
+        "body_count": progressed_chart.body_count,
     }
 
 
@@ -1733,6 +1761,11 @@ def progressed_solar_arc_angles_payload(
         "placements": progressed_planets_payload,
         "houses": directed_cusps_payload,
         "aspects": [],
+        "verified_chart_data": True,
+        "chart_text": chart_text,
+        "result": placements_text,
+        "placements_text": placements_text,
+        "body_count": len(progressed_planets),
     }
 
 
@@ -1794,6 +1827,9 @@ def calculate_progressed_solar_longitude_payload(request: ProgressedChartRequest
         "progressed_house_cusps": directed_cusp_items,
         "placements": placement_items,
         "progressed_planets": placement_items,
+        "verified_chart_data": True,
+        "chart": chart_text,
+        "result": placements_text,
         "chart_text": chart_text,
         "placements_text": placements_text,
         "body_count": len(placements),

@@ -59,6 +59,9 @@ class ProgressedSolarArcEndpointTests(unittest.TestCase):
         self.assertEqual(payload["status"], "success")
         self.assertTrue(payload["success"])
         self.assertTrue(payload["verified_progressed_chart"])
+        self.assertTrue(payload["verified_chart_data"])
+        self.assertEqual(payload["chart"], payload["chart_text"])
+        self.assertIn("SUCCESS", payload["result"])
         self.assertGreater(payload["body_count"], 0)
 
     def test_solar_arc_directions_verified_output(self):
