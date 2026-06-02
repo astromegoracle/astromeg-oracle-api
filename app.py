@@ -1362,7 +1362,7 @@ def progressed_chart_payload(
         "message": "Secondary progressed chart calculated successfully",
         "verified_progressed_chart": True,
         "progression_method": "Secondary progressions: one day after birth equals one year of life.",
-        "angles_method": "Progressed Placidus angles calculated at the progressed Julian day using the calculation location.",
+        "angles_method": "Progressed Julian Day Angles",
         "birth_data": {
             "year": request.birth_year,
             "month": request.birth_month,
@@ -1446,7 +1446,7 @@ def progressed_solar_arc_angles_payload(
         "verified_progressed_chart": True,
         "method": "Secondary Progressions + Solar Arc in Longitude Angles",
         "progression_method": "Secondary progressions: one day after birth equals one year of life.",
-        "angles_method": "Solar Arc in Longitude applied to natal ASC, MC, and Placidus house cusps.",
+        "angles_method": "Solar Arc in Longitude Angles",
         "solar_arc_value": {
             **arc_position(solar_arc),
             "decimal_degrees": solar_arc,
@@ -1626,8 +1626,8 @@ def custom_openapi():
         "summary": "Calculate secondary progressed chart",
         "description": (
             "Calculate a secondary progressed chart using Swiss Ephemeris. "
-            "Progressed planets are calculated by the day-for-a-year method, and progressed "
-            "Placidus angles are calculated at the progressed Julian day."
+            "Progressed planets are calculated by the day-for-a-year method. "
+            "angles_method returns: Progressed Julian Day Angles."
         ),
         "operationId": "calculate_progressed_chart",
         "requestBody": {
@@ -1650,6 +1650,7 @@ def custom_openapi():
         "description": (
             "Calculate secondary progressed planetary positions, then calculate progressed ASC, MC, "
             "and house cusps by applying Solar Arc in Longitude to the natal Placidus angles and cusps. "
+            "angles_method returns: Solar Arc in Longitude Angles. "
             "This endpoint does not use progressed-date angles."
         ),
         "operationId": "calculate_progressed_chart_solar_arc_angles",
