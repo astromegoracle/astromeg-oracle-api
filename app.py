@@ -43,6 +43,7 @@ SOLAR_RETURN_TOLERANCE_ARCSECONDS = 1.0
 SOLAR_RETURN_SOLVE_TOLERANCE_ARCSECONDS = 0.001
 SOLAR_RETURN_SEARCH_STEP_DAYS = 0.25
 SOLAR_RETURN_MAX_ITERATIONS = 80
+TROPICAL_YEAR_DAYS = 365.242189
 
 os.environ["SE_EPHE_PATH"] = str(EPHE_PATH)
 swe.set_ephe_path(str(EPHE_PATH))
@@ -176,6 +177,21 @@ class SolarReturnRequest(BaseModel):
     birthplace: str
     return_year: int
     return_location: str
+
+
+class ProgressedChartRequest(BaseModel):
+    birth_year: int
+    birth_month: int
+    birth_day: int
+    birth_hour: int
+    birth_minute: int
+    birthplace: str
+    progression_year: int
+    progression_month: int
+    progression_day: int
+    progression_hour: int = 12
+    progression_minute: int = 0
+    progression_location: Optional[str] = None
 
 
 CHART_SUCCESS_SCHEMA = {
@@ -326,6 +342,63 @@ SOLAR_RETURN_RESPONSE_SCHEMA = {
         "birth_data": {"type": "object", "additionalProperties": True},
         "placements": CHART_SUCCESS_SCHEMA["properties"]["placements"],
         "houses": CHART_SUCCESS_SCHEMA["properties"]["houses"],
+    },
+}
+PROGRESSED_CHART_REQUEST_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": [
+        "birth_year",
+        "birth_month",
+        "birth_day",
+        "birth_hour",
+        "birth_minute",
+        "birthplace",
+        "progression_year",
+        "progression_month",
+        "progression_day",
+    ],
+    "properties": {
+        "birth_year": {"type": "integer", "example": 1972},
+        "birth_month": {"type": "integer", "example": 7},
+        "birth_day": {"type": "integer", "example": 31},
+        "birth_hour": {"type": "integer", "example": 22},
+        "birth_minute": {"type": "integer", "example": 50},
+        "birthplace": {"type": "string", "example": "Quezon City, Philippines"},
+        "progression_year": {"type": "integer", "example": 2026},
+        "progression_month": {"type": "integer", "example": 8},
+        "progression_day": {"type": "integer", "example": 1},
+        "progression_hour": {"type": "integer", "example": 12, "default": 12},
+        "progression_minute": {"type": "integer", "example": 0, "default": 0},
+        "progression_location": {
+            "type": "string",
+            "example": "Quezon City, Philippines",
+            "description": "Optional location for progressed angles. Defaults to birthplace.",
+        },
+    },
+}
+PROGRESSED_CHART_RESPONSE_SCHEMA = {
+    "type": "object",
+    "additionalProperties": True,
+    "required": ["status", "success", "message", "verified_progressed_chart", "placements", "houses"],
+    "properties": {
+        "status": {"type": "string"},
+        "success": {"type": "boolean"},
+        "message": {"type": "string"},
+        "verified_progressed_chart": {"type": "boolean"},
+        "progression_method": {"type": "string"},
+        "angles_method": {"type": "string"},
+        "birth_data": {"type": "object", "additionalProperties": True},
+        "progression_data": {"type": "object", "additionalProperties": True},
+        "calculation_location": {"type": "string"},
+        "calculation_location_resolved": {"type": "string"},
+        "calculation_location_latitude": {"type": "number"},
+        "calculation_location_longitude": {"type": "number"},
+        "calculation_location_timezone": {"type": "string"},
+        "chart": {"type": "object", "additionalProperties": True},
+        "placements": CHART_SUCCESS_SCHEMA["properties"]["placements"],
+        "houses": CHART_SUCCESS_SCHEMA["properties"]["houses"],
+        "aspects": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
     },
 }
 
@@ -632,6 +705,36 @@ def datetime_to_julian_day_utc(value: datetime) -> float:
         + (utc_value.microsecond / 3_600_000_000.0)
     )
     return swe.julday(utc_value.year, utc_value.month, utc_value.day, hour)
+
+
+def local_datetime_to_utc(
+    year: int,
+    month: int,
+    day: int,
+    hour: int,
+    minute: int,
+    timezone_name: str,
+    label: str,
+) -> datetime:
+    try:
+        local_value = datetime(year, month, day, hour, minute, tzinfo=ZoneInfo(timezone_name))
+    except (ValueError, ZoneInfoNotFoundError) as error:
+        raise HTTPException(status_code=400, detail=f"Invalid {label} datetime or timezone: {error}") from error
+    return local_value.astimezone(timezone.utc)
+
+
+def secondary_progressed_utc(
+    birth_utc: datetime,
+    target_utc: datetime,
+) -> tuple[datetime, float, float]:
+    elapsed_days = (target_utc - birth_utc).total_seconds() / 86400.0
+    if elapsed_days < 0:
+        raise HTTPException(status_code=400, detail="Progression date must be after the birth date.")
+
+    age_years = elapsed_days / TROPICAL_YEAR_DAYS
+    progressed_days_after_birth = age_years
+    progressed_utc = birth_utc + timedelta(days=progressed_days_after_birth)
+    return progressed_utc, progressed_days_after_birth, age_years
 
 
 def return_search_center_utc(return_year: int, birth_month: int, birth_day: int) -> datetime:
@@ -1134,6 +1237,78 @@ def solar_return_payload(
     }
 
 
+def progressed_chart_payload(
+    request: ProgressedChartRequest,
+    natal_place: PlaceResolution,
+    calculation_place: PlaceResolution,
+    birth_utc: datetime,
+    target_utc: datetime,
+    target_local: datetime,
+    progressed_utc: datetime,
+    progressed_days_after_birth: float,
+    age_years: float,
+    progressed_chart: ChartResponse,
+) -> dict:
+    progressed_local = progressed_utc.astimezone(ZoneInfo(calculation_place.timezone_name))
+    chart_payload = action_chart_payload(progressed_chart)
+
+    return {
+        "status": "success",
+        "success": True,
+        "message": "Secondary progressed chart calculated successfully",
+        "verified_progressed_chart": True,
+        "progression_method": "Secondary progressions: one day after birth equals one year of life.",
+        "angles_method": "Progressed Placidus angles calculated at the progressed Julian day using the calculation location.",
+        "birth_data": {
+            "year": request.birth_year,
+            "month": request.birth_month,
+            "day": request.birth_day,
+            "hour": request.birth_hour,
+            "minute": request.birth_minute,
+            "birthplace": request.birthplace,
+            "resolved_place": natal_place.birthplace_resolved,
+            "latitude": natal_place.latitude,
+            "longitude": natal_place.longitude,
+            "timezone": natal_place.timezone_name,
+            "birth_utc": birth_utc.isoformat().replace("+00:00", "Z"),
+            "zodiac": ZODIAC,
+            "house_system": HOUSE_SYSTEM,
+        },
+        "progression_data": {
+            "target_year": request.progression_year,
+            "target_month": request.progression_month,
+            "target_day": request.progression_day,
+            "target_hour": request.progression_hour,
+            "target_minute": request.progression_minute,
+            "target_local": target_local.isoformat(),
+            "target_utc": target_utc.isoformat().replace("+00:00", "Z"),
+            "age_years": age_years,
+            "progressed_days_after_birth": progressed_days_after_birth,
+            "progressed_utc": progressed_utc.isoformat().replace("+00:00", "Z"),
+            "progressed_local": progressed_local.isoformat(),
+        },
+        "calculation_location": request.progression_location or request.birthplace,
+        "calculation_location_resolved": calculation_place.birthplace_resolved,
+        "calculation_location_latitude": calculation_place.latitude,
+        "calculation_location_longitude": calculation_place.longitude,
+        "calculation_location_timezone": calculation_place.timezone_name,
+        "chart": {
+            "summary": progressed_chart.chart,
+            "chart_text": progressed_chart.chart_text,
+            "placements_text": progressed_chart.placements_text,
+            "body_count": progressed_chart.body_count,
+            "ascendant": chart_payload["ascendant"],
+            "ascendant_position": chart_payload["ascendant_position"],
+            "midheaven": chart_payload["midheaven"],
+            "midheaven_position": chart_payload["midheaven_position"],
+            "timezone": calculation_place.timezone_name,
+        },
+        "placements": chart_payload["placements"],
+        "houses": chart_payload["houses"],
+        "aspects": chart_payload["aspects"],
+    }
+
+
 app = FastAPI(
     title="Astromeg Oracle Swiss Ephemeris API",
     version="1.0.0",
@@ -1243,11 +1418,35 @@ def custom_openapi():
             },
         },
     }
+    progressed_operation = {
+        "summary": "Calculate secondary progressed chart",
+        "description": (
+            "Calculate a secondary progressed chart using Swiss Ephemeris. "
+            "Progressed planets are calculated by the day-for-a-year method, and progressed "
+            "Placidus angles are calculated at the progressed Julian day."
+        ),
+        "operationId": "calculate_progressed_chart",
+        "requestBody": {
+            "required": True,
+            "content": {"application/json": {"schema": PROGRESSED_CHART_REQUEST_SCHEMA}},
+        },
+        "responses": {
+            "200": {
+                "description": "Secondary progressed chart result or readable application-level error.",
+                "content": {"application/json": {"schema": PROGRESSED_CHART_RESPONSE_SCHEMA}},
+            },
+            "default": {
+                "description": "Progressed chart request could not be calculated.",
+                "content": {"application/json": {"schema": ERROR_SCHEMA}},
+            },
+        },
+    }
 
     schema["openapi"] = "3.1.0"
     schema["paths"] = {
         "/chart": {"get": chart_operation},
         "/calculate_solar_return": {"post": solar_operation},
+        "/calculate_progressed_chart": {"post": progressed_operation},
     }
     schema.pop("components", None)
     app.openapi_schema = schema
@@ -1564,6 +1763,99 @@ def calculate_solar_return(request: SolarReturnRequest):
         "solar return complete verified=%s delta_arcseconds=%s",
         payload.get("verified_solar_return"),
         payload.get("longitude_delta_arcseconds"),
+    )
+    return json_response(payload)
+
+
+@app.post(
+    "/calculate_progressed_chart",
+    operation_id="calculate_progressed_chart",
+    description=(
+        "Calculate a secondary progressed chart with progressed planets and progressed Placidus angles."
+    ),
+    responses={
+        200: {
+            "description": "Secondary progressed chart calculation result.",
+            "content": {"application/json": {"schema": {"type": "object", "additionalProperties": True}}},
+        },
+    },
+)
+def calculate_progressed_chart(request: ProgressedChartRequest):
+    logger.info(
+        "progressed chart start birthplace=%s target=%s-%s-%s location=%s",
+        request.birthplace,
+        request.progression_year,
+        request.progression_month,
+        request.progression_day,
+        request.progression_location or request.birthplace,
+    )
+    natal_place = resolve_birthplace(request.birthplace)
+    calculation_place = resolve_birthplace(request.progression_location or request.birthplace)
+
+    birth_utc = local_datetime_to_utc(
+        request.birth_year,
+        request.birth_month,
+        request.birth_day,
+        request.birth_hour,
+        request.birth_minute,
+        natal_place.timezone_name,
+        "birth",
+    )
+    target_utc = local_datetime_to_utc(
+        request.progression_year,
+        request.progression_month,
+        request.progression_day,
+        request.progression_hour,
+        request.progression_minute,
+        calculation_place.timezone_name,
+        "progression target",
+    )
+    target_local = target_utc.astimezone(ZoneInfo(calculation_place.timezone_name))
+    progressed_utc, progressed_days_after_birth, age_years = secondary_progressed_utc(
+        birth_utc=birth_utc,
+        target_utc=target_utc,
+    )
+    progressed_jd = datetime_to_julian_day_utc(progressed_utc)
+    progressed_local = progressed_utc.astimezone(ZoneInfo(calculation_place.timezone_name))
+    progressed_offset = progressed_local.utcoffset()
+    if progressed_offset is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Could not determine progressed timezone offset: {calculation_place.timezone_name}",
+        )
+
+    progressed_chart = build_chart_response_from_jd(
+        jd=progressed_jd,
+        year=progressed_local.year,
+        month=progressed_local.month,
+        day=progressed_local.day,
+        hour=progressed_local.hour,
+        minute=progressed_local.minute,
+        latitude=calculation_place.latitude,
+        longitude=calculation_place.longitude,
+        timezone_offset=progressed_offset.total_seconds() / 3600.0,
+        timezone_name=calculation_place.timezone_name,
+        resolved_place=calculation_place.birthplace_resolved,
+        birthplace=request.progression_location or request.birthplace,
+    )
+
+    payload = progressed_chart_payload(
+        request=request,
+        natal_place=natal_place,
+        calculation_place=calculation_place,
+        birth_utc=birth_utc,
+        target_utc=target_utc,
+        target_local=target_local,
+        progressed_utc=progressed_utc,
+        progressed_days_after_birth=progressed_days_after_birth,
+        age_years=age_years,
+        progressed_chart=progressed_chart,
+    )
+    logger.info(
+        "progressed chart complete age_years=%.6f progressed_days=%.6f body_count=%s",
+        age_years,
+        progressed_days_after_birth,
+        payload.get("chart", {}).get("body_count"),
     )
     return json_response(payload)
 
