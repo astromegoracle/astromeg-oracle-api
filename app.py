@@ -401,6 +401,54 @@ PROGRESSED_CHART_RESPONSE_SCHEMA = {
         "aspects": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
     },
 }
+PROGRESSED_SOLAR_ARC_ANGLES_RESPONSE_SCHEMA = {
+    "type": "object",
+    "additionalProperties": True,
+    "required": [
+        "status",
+        "success",
+        "message",
+        "verified_progressed_chart",
+        "method",
+        "solar_arc_value",
+        "progressed_asc",
+        "progressed_mc",
+        "progressed_house_cusps",
+        "progressed_planets",
+    ],
+    "properties": {
+        "status": {"type": "string"},
+        "success": {"type": "boolean"},
+        "message": {"type": "string"},
+        "verified_progressed_chart": {"type": "boolean"},
+        "method": {"type": "string"},
+        "progression_method": {"type": "string"},
+        "angles_method": {"type": "string"},
+        "solar_arc_value": {"type": "object", "additionalProperties": True},
+        "natal_sun": {"type": "object", "additionalProperties": True},
+        "progressed_sun": {"type": "object", "additionalProperties": True},
+        "progressed_asc": {"type": "object", "additionalProperties": True},
+        "progressed_mc": {"type": "object", "additionalProperties": True},
+        "progressed_house_cusps": CHART_SUCCESS_SCHEMA["properties"]["houses"],
+        "progressed_planets": CHART_SUCCESS_SCHEMA["properties"]["placements"],
+        "placements": CHART_SUCCESS_SCHEMA["properties"]["placements"],
+        "houses": CHART_SUCCESS_SCHEMA["properties"]["houses"],
+        "birth_data": {"type": "object", "additionalProperties": True},
+        "progression_data": {"type": "object", "additionalProperties": True},
+        "target_location": {"type": "string"},
+        "target_location_resolved": {"type": "string"},
+        "target_location_latitude": {"type": "number"},
+        "target_location_longitude": {"type": "number"},
+        "target_location_timezone": {"type": "string"},
+        "calculation_location": {"type": "string"},
+        "calculation_location_resolved": {"type": "string"},
+        "calculation_location_latitude": {"type": "number"},
+        "calculation_location_longitude": {"type": "number"},
+        "calculation_location_timezone": {"type": "string"},
+        "chart": {"type": "object", "additionalProperties": True},
+        "aspects": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+    },
+}
 
 
 COMMON_PLACE_CACHE: dict[str, PlaceResolution] = {
@@ -677,6 +725,62 @@ def zodiac_position(absolute_degree: float) -> dict[str, object]:
         "decimal_degree": degree_float,
         "absolute_degree": normalized,
         "formatted": f"{sign} {degree}\u00b0{minute:02d}'{second:05.2f}\"",
+    }
+
+
+def arc_position(arc_degrees: float) -> dict[str, object]:
+    normalized = arc_degrees % 360.0
+    degree = int(normalized)
+    minute_float = (normalized - degree) * 60.0
+    minute = int(minute_float)
+    second = round((minute_float - minute) * 60.0, 2)
+
+    if second >= 60.0:
+        second = 0.0
+        minute += 1
+    if minute >= 60:
+        minute = 0
+        degree += 1
+
+    return {
+        "degree": degree,
+        "minute": minute,
+        "second": second,
+        "decimal_degrees": normalized,
+        "formatted": f"{degree}\u00b0{minute:02d}'{second:05.2f}\"",
+    }
+
+
+def directed_house_cusps(cusp_values: list[float], solar_arc: float) -> list[HouseCuspResponse]:
+    return [
+        HouseCuspResponse(
+            house=index,
+            sign=zodiac_sign(cusp + solar_arc),
+            degree=zodiac_degree(cusp + solar_arc),
+            absolute_degree=(cusp + solar_arc) % 360.0,
+        )
+        for index, cusp in enumerate(cusp_values, start=1)
+    ]
+
+
+def placement_payload(placement: PlacementResponse) -> dict:
+    return {
+        "body": placement.body,
+        "sign": placement.sign,
+        "degree": round(placement.degree, 2),
+        "position": zodiac_position(placement.absolute_degree),
+        "absolute_degree": placement.absolute_degree % 360.0,
+        "house": placement.house,
+    }
+
+
+def house_payload(house: HouseCuspResponse) -> dict:
+    return {
+        "house": house.house,
+        "sign": house.sign,
+        "degree": round(house.degree, 2),
+        "position": zodiac_position(house.absolute_degree),
+        "absolute_degree": house.absolute_degree % 360.0,
     }
 
 
@@ -1309,6 +1413,106 @@ def progressed_chart_payload(
     }
 
 
+def progressed_solar_arc_angles_payload(
+    request: ProgressedChartRequest,
+    natal_place: PlaceResolution,
+    target_place: PlaceResolution,
+    birth_utc: datetime,
+    target_utc: datetime,
+    target_local: datetime,
+    progressed_utc: datetime,
+    progressed_days_after_birth: float,
+    age_years: float,
+    natal_sun_longitude: float,
+    progressed_sun_longitude: float,
+    natal_ascendant: float,
+    natal_midheaven: float,
+    directed_cusps: list[HouseCuspResponse],
+    progressed_planets: list[PlacementResponse],
+) -> dict:
+    solar_arc = (progressed_sun_longitude - natal_sun_longitude) % 360.0
+    progressed_ascendant = (natal_ascendant + solar_arc) % 360.0
+    progressed_midheaven = (natal_midheaven + solar_arc) % 360.0
+    progressed_local = progressed_utc.astimezone(ZoneInfo(target_place.timezone_name))
+    progressed_planets_payload = [placement_payload(placement) for placement in progressed_planets]
+    directed_cusps_payload = [house_payload(cusp) for cusp in directed_cusps]
+    chart_text = chart_summary(progressed_planets)
+    placements_text = placement_summary(progressed_planets)
+
+    return {
+        "status": "success",
+        "success": True,
+        "message": "Secondary progressed chart with Solar Arc in Longitude angles calculated successfully",
+        "verified_progressed_chart": True,
+        "method": "Secondary Progressions + Solar Arc in Longitude Angles",
+        "progression_method": "Secondary progressions: one day after birth equals one year of life.",
+        "angles_method": "Solar Arc in Longitude applied to natal ASC, MC, and Placidus house cusps.",
+        "solar_arc_value": {
+            **arc_position(solar_arc),
+            "decimal_degrees": solar_arc,
+        },
+        "natal_sun": zodiac_position(natal_sun_longitude),
+        "progressed_sun": zodiac_position(progressed_sun_longitude),
+        "progressed_asc": zodiac_position(progressed_ascendant),
+        "progressed_mc": zodiac_position(progressed_midheaven),
+        "progressed_house_cusps": directed_cusps_payload,
+        "progressed_planets": progressed_planets_payload,
+        "birth_data": {
+            "year": request.birth_year,
+            "month": request.birth_month,
+            "day": request.birth_day,
+            "hour": request.birth_hour,
+            "minute": request.birth_minute,
+            "birthplace": request.birthplace,
+            "resolved_place": natal_place.birthplace_resolved,
+            "latitude": natal_place.latitude,
+            "longitude": natal_place.longitude,
+            "timezone": natal_place.timezone_name,
+            "birth_utc": birth_utc.isoformat().replace("+00:00", "Z"),
+            "zodiac": ZODIAC,
+            "house_system": HOUSE_SYSTEM,
+        },
+        "progression_data": {
+            "target_year": request.progression_year,
+            "target_month": request.progression_month,
+            "target_day": request.progression_day,
+            "target_hour": request.progression_hour,
+            "target_minute": request.progression_minute,
+            "target_local": target_local.isoformat(),
+            "target_utc": target_utc.isoformat().replace("+00:00", "Z"),
+            "age_years": age_years,
+            "progressed_days_after_birth": progressed_days_after_birth,
+            "progressed_utc": progressed_utc.isoformat().replace("+00:00", "Z"),
+            "progressed_local": progressed_local.isoformat(),
+        },
+        "target_location": request.progression_location or request.birthplace,
+        "target_location_resolved": target_place.birthplace_resolved,
+        "target_location_latitude": target_place.latitude,
+        "target_location_longitude": target_place.longitude,
+        "target_location_timezone": target_place.timezone_name,
+        "calculation_location": request.birthplace,
+        "calculation_location_resolved": natal_place.birthplace_resolved,
+        "calculation_location_latitude": natal_place.latitude,
+        "calculation_location_longitude": natal_place.longitude,
+        "calculation_location_timezone": natal_place.timezone_name,
+        "chart": {
+            "summary": chart_text,
+            "chart_text": chart_text,
+            "placements_text": placements_text,
+            "body_count": len(progressed_planets),
+            "solar_arc_value": arc_position(solar_arc),
+            "ascendant": round(progressed_ascendant, 2),
+            "ascendant_position": zodiac_position(progressed_ascendant),
+            "midheaven": round(progressed_midheaven, 2),
+            "midheaven_position": zodiac_position(progressed_midheaven),
+            "timezone": natal_place.timezone_name,
+        },
+        "placements": progressed_planets_payload,
+        "houses": directed_cusps_payload,
+        "aspects": [],
+    }
+
+
 app = FastAPI(
     title="Astromeg Oracle Swiss Ephemeris API",
     version="1.0.0",
@@ -1441,12 +1645,36 @@ def custom_openapi():
             },
         },
     }
+    progressed_solar_arc_angles_operation = {
+        "summary": "Calculate secondary progressed chart with Solar Arc longitude angles",
+        "description": (
+            "Calculate secondary progressed planetary positions, then calculate progressed ASC, MC, "
+            "and house cusps by applying Solar Arc in Longitude to the natal Placidus angles and cusps. "
+            "This endpoint does not use progressed-date angles."
+        ),
+        "operationId": "calculate_progressed_chart_solar_arc_angles",
+        "requestBody": {
+            "required": True,
+            "content": {"application/json": {"schema": PROGRESSED_CHART_REQUEST_SCHEMA}},
+        },
+        "responses": {
+            "200": {
+                "description": "Secondary progressed chart with Solar Arc longitude angles result or readable application-level error.",
+                "content": {"application/json": {"schema": PROGRESSED_SOLAR_ARC_ANGLES_RESPONSE_SCHEMA}},
+            },
+            "default": {
+                "description": "Progressed chart with Solar Arc longitude angles request could not be calculated.",
+                "content": {"application/json": {"schema": ERROR_SCHEMA}},
+            },
+        },
+    }
 
     schema["openapi"] = "3.1.0"
     schema["paths"] = {
         "/chart": {"get": chart_operation},
         "/calculate_solar_return": {"post": solar_operation},
         "/calculate_progressed_chart": {"post": progressed_operation},
+        "/calculate_progressed_chart_solar_arc_angles": {"post": progressed_solar_arc_angles_operation},
     }
     schema.pop("components", None)
     app.openapi_schema = schema
@@ -1855,6 +2083,106 @@ def calculate_progressed_chart(request: ProgressedChartRequest):
         "progressed chart complete age_years=%.6f progressed_days=%.6f body_count=%s",
         age_years,
         progressed_days_after_birth,
+        payload.get("chart", {}).get("body_count"),
+    )
+    return json_response(payload)
+
+
+@app.post(
+    "/calculate_progressed_chart_solar_arc_angles",
+    operation_id="calculate_progressed_chart_solar_arc_angles",
+    description=(
+        "Calculate secondary progressed planets with Solar Arc in Longitude directed ASC, MC, and house cusps."
+    ),
+    responses={
+        200: {
+            "description": "Secondary progressed chart with Solar Arc longitude angles result.",
+            "content": {"application/json": {"schema": {"type": "object", "additionalProperties": True}}},
+        },
+    },
+)
+def calculate_progressed_chart_solar_arc_angles(request: ProgressedChartRequest):
+    logger.info(
+        "progressed solar arc angles start birthplace=%s target=%s-%s-%s target_location=%s",
+        request.birthplace,
+        request.progression_year,
+        request.progression_month,
+        request.progression_day,
+        request.progression_location or request.birthplace,
+    )
+    natal_place = resolve_birthplace(request.birthplace)
+    target_place = resolve_birthplace(request.progression_location or request.birthplace)
+
+    birth_utc = local_datetime_to_utc(
+        request.birth_year,
+        request.birth_month,
+        request.birth_day,
+        request.birth_hour,
+        request.birth_minute,
+        natal_place.timezone_name,
+        "birth",
+    )
+    target_utc = local_datetime_to_utc(
+        request.progression_year,
+        request.progression_month,
+        request.progression_day,
+        request.progression_hour,
+        request.progression_minute,
+        target_place.timezone_name,
+        "progression target",
+    )
+    target_local = target_utc.astimezone(ZoneInfo(target_place.timezone_name))
+    progressed_utc, progressed_days_after_birth, age_years = secondary_progressed_utc(
+        birth_utc=birth_utc,
+        target_utc=target_utc,
+    )
+    natal_jd = datetime_to_julian_day_utc(birth_utc)
+    progressed_jd = datetime_to_julian_day_utc(progressed_utc)
+
+    natal_planets = calculate_planets(natal_jd).model_dump(by_alias=True)
+    progressed_planet_values = calculate_planets(progressed_jd).model_dump(by_alias=True)
+    natal_sun_longitude = float(natal_planets["Sun"] % 360.0)
+    progressed_sun_longitude = float(progressed_planet_values["Sun"] % 360.0)
+    solar_arc = (progressed_sun_longitude - natal_sun_longitude) % 360.0
+
+    _natal_houses, natal_cusp_values, natal_ascendant, natal_midheaven = calculate_houses(
+        natal_jd,
+        natal_place.latitude,
+        natal_place.longitude,
+    )
+    directed_cusps = directed_house_cusps(natal_cusp_values, solar_arc)
+    directed_cusp_values = [cusp.absolute_degree for cusp in directed_cusps]
+    progressed_planets = [
+        PlacementResponse(
+            body=body,
+            sign=zodiac_sign(absolute_degree),
+            degree=zodiac_degree(absolute_degree),
+            absolute_degree=absolute_degree,
+            house=house_for_degree(absolute_degree, directed_cusp_values),
+        )
+        for body, absolute_degree in progressed_planet_values.items()
+    ]
+
+    payload = progressed_solar_arc_angles_payload(
+        request=request,
+        natal_place=natal_place,
+        target_place=target_place,
+        birth_utc=birth_utc,
+        target_utc=target_utc,
+        target_local=target_local,
+        progressed_utc=progressed_utc,
+        progressed_days_after_birth=progressed_days_after_birth,
+        age_years=age_years,
+        natal_sun_longitude=natal_sun_longitude,
+        progressed_sun_longitude=progressed_sun_longitude,
+        natal_ascendant=natal_ascendant,
+        natal_midheaven=natal_midheaven,
+        directed_cusps=directed_cusps,
+        progressed_planets=progressed_planets,
+    )
+    logger.info(
+        "progressed solar arc angles complete solar_arc=%.8f body_count=%s",
+        solar_arc,
         payload.get("chart", {}).get("body_count"),
     )
     return json_response(payload)
