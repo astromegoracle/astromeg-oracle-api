@@ -1,4 +1,5 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+import hmac
 import json
 import logging
 import os
@@ -6,7 +7,7 @@ from pathlib import Path
 import time
 from typing import Annotated, Optional
 from urllib.error import URLError
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 from urllib.request import Request as UrlRequest
 from urllib.request import urlopen
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -44,6 +45,9 @@ SOLAR_RETURN_SOLVE_TOLERANCE_ARCSECONDS = 0.001
 SOLAR_RETURN_SEARCH_STEP_DAYS = 0.25
 SOLAR_RETURN_MAX_ITERATIONS = 80
 TROPICAL_YEAR_DAYS = 365.242189
+MANILA_TIMEZONE = "Asia/Manila"
+FREE_ACCESS_DEADLINE = datetime(2026, 5, 18, 0, 0, tzinfo=ZoneInfo(MANILA_TIMEZONE))
+VALID_ACCESS_STATUSES = {"ACTIVE", "PAID"}
 
 os.environ["SE_EPHE_PATH"] = str(EPHE_PATH)
 swe.set_ephe_path(str(EPHE_PATH))
@@ -194,6 +198,21 @@ class ProgressedChartRequest(BaseModel):
     progression_location: Optional[str] = None
 
 
+class AccessCodeValidationRequest(BaseModel):
+    access_code: str
+
+
+class AccessCodeValidationResponse(BaseModel):
+    valid: bool
+    status: str
+    message: str
+    customer_name: str | None = None
+    email: str | None = None
+    expiration_date: str | None = None
+    permission_level: str | None = None
+    reading_type: str | None = None
+
+
 CHART_SUCCESS_SCHEMA = {
     "type": "object",
     "additionalProperties": True,
@@ -285,6 +304,61 @@ ERROR_SCHEMA = {
         "details": {"type": "string"},
         "http_status": {"type": "integer"},
     },
+}
+ACCESS_CODE_REQUEST_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["access_code"],
+    "properties": {
+        "access_code": {
+            "type": "string",
+            "example": "AMO-VIP-30DAY-0072",
+            "description": "User-provided access code. Trim spaces before validating.",
+        },
+    },
+}
+ACCESS_CODE_RESPONSE_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["valid", "status", "message"],
+    "properties": {
+        "valid": {"type": "boolean"},
+        "status": {"type": "string", "example": "ACTIVE"},
+        "message": {"type": "string", "example": "Access confirmed."},
+        "customer_name": {"type": ["string", "null"]},
+        "email": {"type": ["string", "null"]},
+        "expiration_date": {"type": ["string", "null"], "example": "2026-05-31"},
+        "permission_level": {"type": ["string", "null"], "example": "VIP"},
+        "reading_type": {"type": ["string", "null"], "example": "30DAY"},
+    },
+    "examples": [
+        {
+            "valid": True,
+            "status": "ACTIVE",
+            "customer_name": None,
+            "email": None,
+            "expiration_date": "2026-05-31",
+            "permission_level": "VIP",
+            "reading_type": "30DAY",
+            "message": "Access confirmed.",
+        },
+        {
+            "valid": False,
+            "status": "EXPIRED",
+            "expiration_date": "2026-05-31",
+            "message": "This access code has expired.",
+        },
+        {
+            "valid": False,
+            "status": "INVALID",
+            "message": "Invalid access code.",
+        },
+        {
+            "valid": False,
+            "status": "ERROR",
+            "message": "Access validation is temporarily unavailable. Please try again.",
+        },
+    ],
 }
 CHART_RESPONSE_SCHEMA = {
     "type": "object",
@@ -1079,6 +1153,211 @@ def fetch_json(url: str, timeout: int, log_url: str | None = None) -> object:
                 time.sleep(RETRY_DELAY_SECONDS)
 
     raise HTTPException(status_code=502, detail=f"External lookup unavailable: {last_error}")
+
+
+def normalize_access_code(value: str) -> str:
+    return " ".join(value.strip().split()).casefold()
+
+
+def normalize_sheet_header(value: str) -> str:
+    return "".join(character for character in value.casefold() if character.isalnum())
+
+
+def sheet_cell(row: list[object], index: int | None) -> str:
+    if index is None or index >= len(row):
+        return ""
+    return str(row[index]).strip()
+
+
+ACCESS_COLUMN_ALIASES = {
+    "access_code": {"accesscode", "code"},
+    "expiration_date": {"expirationdate", "expiration", "expirydate", "expires", "expireson"},
+    "status": {"status"},
+    "permission_level": {"permissionlevel", "permission", "level"},
+    "reading_type": {"readingtype", "codetype", "type"},
+    "customer_name": {"customername", "name", "clientname"},
+    "email": {"email", "customeremail", "clientemail"},
+}
+
+
+def sheet_rows_to_records(rows: list[list[object]]) -> list[dict[str, str]]:
+    if not rows:
+        return []
+
+    header_map = {normalize_sheet_header(str(header)): index for index, header in enumerate(rows[0])}
+    indexes = {
+        field: next((header_map[alias] for alias in aliases if alias in header_map), None)
+        for field, aliases in ACCESS_COLUMN_ALIASES.items()
+    }
+
+    records = []
+    for row in rows[1:]:
+        if not any(str(cell).strip() for cell in row):
+            continue
+        records.append(
+            {
+                field: sheet_cell(row, index)
+                for field, index in indexes.items()
+            }
+        )
+    return records
+
+
+def parse_expiration_date(value: str) -> date | None:
+    stripped = value.strip()
+    if not stripped:
+        return None
+
+    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y", "%d/%m/%Y", "%Y/%m/%d", "%B %d, %Y", "%b %d, %Y"):
+        try:
+            return datetime.strptime(stripped, fmt).date()
+        except ValueError:
+            continue
+
+    try:
+        serial_value = float(stripped)
+    except ValueError:
+        return None
+
+    if serial_value <= 0:
+        return None
+
+    return date(1899, 12, 30) + timedelta(days=int(serial_value))
+
+
+def access_response(
+    valid: bool,
+    status: str,
+    message: str,
+    expiration_date: str | None = None,
+    permission_level: str | None = None,
+    reading_type: str | None = None,
+    customer_name: str | None = None,
+    email: str | None = None,
+    include_null_fields: bool = False,
+) -> dict:
+    response = {
+        "valid": valid,
+        "status": status,
+        "message": message,
+    }
+    optional_fields = {
+        "customer_name": customer_name,
+        "email": email,
+        "expiration_date": expiration_date,
+        "permission_level": permission_level,
+        "reading_type": reading_type,
+    }
+    for key, value in optional_fields.items():
+        if value is not None or include_null_fields:
+            response[key] = value
+    return response
+
+
+def validate_access_code_from_rows(
+    access_code: str,
+    rows: list[list[object]],
+    now: datetime | None = None,
+) -> dict:
+    submitted_code = normalize_access_code(access_code)
+    current_time = now or datetime.now(ZoneInfo(MANILA_TIMEZONE))
+    today = current_time.date()
+
+    if not submitted_code:
+        return access_response(False, "INVALID", "Invalid access code.")
+
+    if submitted_code in {"weekly", "daily"}:
+        reading_type = submitted_code.upper()
+        if current_time < FREE_ACCESS_DEADLINE:
+            return access_response(
+                True,
+                "ACTIVE",
+                "Access confirmed.",
+                expiration_date=FREE_ACCESS_DEADLINE.date().isoformat(),
+                permission_level="FREE",
+                reading_type=reading_type,
+            )
+        return access_response(
+            False,
+            "EXPIRED",
+            "This access code has expired.",
+            expiration_date=FREE_ACCESS_DEADLINE.date().isoformat(),
+        )
+
+    for record in sheet_rows_to_records(rows):
+        if normalize_access_code(record.get("access_code", "")) != submitted_code:
+            continue
+
+        raw_expiration = record.get("expiration_date", "")
+        expiration = parse_expiration_date(raw_expiration)
+        expiration_iso = expiration.isoformat() if expiration else None
+        status = record.get("status", "").strip().upper()
+
+        if expiration is not None and expiration < today:
+            return access_response(False, "EXPIRED", "This access code has expired.", expiration_date=expiration_iso)
+
+        if status not in VALID_ACCESS_STATUSES:
+            return access_response(False, "INVALID", "Invalid access code.", expiration_date=expiration_iso)
+
+        if expiration is None:
+            return access_response(False, "INVALID", "Invalid access code.")
+
+        return access_response(
+            True,
+            status,
+            "Access confirmed.",
+            customer_name=record.get("customer_name") or None,
+            email=record.get("email") or None,
+            expiration_date=expiration_iso,
+            permission_level=record.get("permission_level") or "VIP",
+            reading_type=record.get("reading_type") or "30DAY",
+            include_null_fields=True,
+        )
+
+    return access_response(False, "INVALID", "Invalid access code.")
+
+
+def fetch_access_sheet_rows() -> list[list[object]]:
+    service_account_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
+    sheet_id = os.environ.get("GOOGLE_SHEET_ID", "").strip()
+    tab_name = os.environ.get("GOOGLE_SHEET_TAB_NAME", "").strip()
+
+    if not service_account_json or not sheet_id or not tab_name:
+        raise RuntimeError("Missing Google Sheets access configuration.")
+
+    try:
+        from google.auth.transport.requests import Request as GoogleAuthRequest
+        from google.oauth2 import service_account
+    except ImportError as error:
+        raise RuntimeError("Google Sheets authentication dependency is not installed.") from error
+
+    credentials_info = json.loads(service_account_json)
+    credentials = service_account.Credentials.from_service_account_info(
+        credentials_info,
+        scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"],
+    )
+    credentials.refresh(GoogleAuthRequest())
+
+    escaped_tab_name = tab_name.replace("'", "''")
+    range_name = f"'{escaped_tab_name}'!A:Z"
+    url = (
+        f"https://sheets.googleapis.com/v4/spreadsheets/{quote(sheet_id, safe='')}/values/"
+        f"{quote(range_name, safe='')}?{urlencode({'majorDimension': 'ROWS'})}"
+    )
+    request = UrlRequest(
+        url,
+        headers={
+            "Authorization": f"Bearer {credentials.token}",
+            "User-Agent": USER_AGENT,
+        },
+    )
+    with urlopen(request, timeout=GEOCODE_TIMEOUT_SECONDS) as response:
+        payload = json.load(response)
+
+    values = payload.get("values", [])
+    if not isinstance(values, list):
+        raise RuntimeError("Malformed Google Sheets response.")
+    return values
 
 
 def location_match_text(match: dict) -> str:
@@ -2037,6 +2316,30 @@ def custom_openapi():
             "content": {"application/json": {"schema": ERROR_SCHEMA}},
         },
     }
+    validate_access_operation = {
+        "summary": "Validate access code",
+        "description": (
+            "Read-only access-code validation against the configured Google Sheet. "
+            "Requires Authorization: Bearer <ORACLE_BACKEND_API_KEY>. "
+            "Does not write to Google Sheets and does not expose the full code list."
+        ),
+        "operationId": "validateAccessCode",
+        "security": [{"BearerAuth": []}],
+        "requestBody": {
+            "required": True,
+            "content": {"application/json": {"schema": ACCESS_CODE_REQUEST_SCHEMA}},
+        },
+        "responses": {
+            "200": {
+                "description": "Access code validation result.",
+                "content": {"application/json": {"schema": ACCESS_CODE_RESPONSE_SCHEMA}},
+            },
+            "401": {
+                "description": "Missing or invalid backend API key.",
+                "content": {"application/json": {"schema": ACCESS_CODE_RESPONSE_SCHEMA}},
+            },
+        },
+    }
     solar_operation = {
         "summary": "Calculate exact solar return",
         "description": (
@@ -2154,6 +2457,7 @@ def custom_openapi():
 
     schema["openapi"] = "3.1.0"
     schema["paths"] = {
+        "/validate-access-code": {"post": validate_access_operation},
         "/chart": {"get": chart_operation},
         "/calculate_solar_return": {"post": solar_operation},
         "/calculate_progressed_chart": {"post": progressed_operation},
@@ -2162,6 +2466,15 @@ def custom_openapi():
         "/calculate_solar_arc_directions": {"post": solar_arc_directions_operation},
     }
     schema.pop("components", None)
+    schema["components"] = {
+        "securitySchemes": {
+            "BearerAuth": {
+                "type": "http",
+                "scheme": "bearer",
+                "description": "Use ORACLE_BACKEND_API_KEY as the bearer token.",
+            }
+        }
+    }
     app.openapi_schema = schema
     return app.openapi_schema
 
@@ -2171,6 +2484,18 @@ app.openapi = custom_openapi
 
 def json_response(content: dict, status_code: int = 200) -> JSONResponse:
     return JSONResponse(status_code=status_code, content=content)
+
+
+def authorized_backend_request(request: Request) -> bool:
+    expected_token = os.environ.get("ORACLE_BACKEND_API_KEY", "").strip()
+    authorization = request.headers.get("Authorization", "")
+    prefix = "Bearer "
+
+    if not expected_token or not authorization.startswith(prefix):
+        return False
+
+    supplied_token = authorization[len(prefix):].strip()
+    return hmac.compare_digest(supplied_token, expected_token)
 
 
 @app.exception_handler(HTTPException)
@@ -2230,6 +2555,35 @@ def robots_txt():
 @app.get("/favicon.ico", include_in_schema=False)
 def favicon():
     return Response(content=b"", media_type="image/x-icon", status_code=200)
+
+
+@app.post(
+    "/validate-access-code",
+    response_model=AccessCodeValidationResponse,
+    operation_id="validateAccessCode",
+    description="Validate a user access code against the configured Google Sheet in read-only mode.",
+    responses={
+        200: {"description": "Access code validation result.", "content": {"application/json": {"schema": ACCESS_CODE_RESPONSE_SCHEMA}}},
+        401: {"description": "Missing or invalid backend API key.", "content": {"application/json": {"schema": ACCESS_CODE_RESPONSE_SCHEMA}}},
+    },
+)
+def validate_access_code(payload: AccessCodeValidationRequest, request: Request):
+    if not authorized_backend_request(request):
+        return json_response(
+            access_response(False, "ERROR", "Unauthorized."),
+            status_code=401,
+        )
+
+    try:
+        rows = fetch_access_sheet_rows()
+        result = validate_access_code_from_rows(payload.access_code, rows)
+        logger.info("access code validation status=%s valid=%s", result.get("status"), result.get("valid"))
+        return json_response(result)
+    except Exception as error:
+        logger.exception("access code validation unavailable error=%s", error)
+        return json_response(
+            access_response(False, "ERROR", "Access validation is temporarily unavailable. Please try again.")
+        )
 
 
 @app.get("/privacy-policy", include_in_schema=False)
