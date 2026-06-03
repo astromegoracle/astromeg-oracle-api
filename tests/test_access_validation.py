@@ -16,14 +16,32 @@ class FakeRequest:
         self.headers = headers or {}
 
 
+class FakeUrlResponse:
+    def __init__(self, payload):
+        self.payload = payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        return False
+
+    def read(self):
+        return json.dumps(self.payload).encode("utf-8")
+
+
 class AccessCodeValidationTests(unittest.TestCase):
     def setUp(self):
         self.original_fetch = app.fetch_access_sheet_rows
         self.original_api_key = os.environ.get("ORACLE_BACKEND_API_KEY")
         self.original_env_codes = os.environ.get("ORACLE_ACCESS_CODES_JSON")
+        self.original_validation_url = os.environ.get("ORACLE_ACCESS_VALIDATION_URL")
+        self.original_validation_secret = os.environ.get("ORACLE_ACCESS_VALIDATION_SECRET")
+        self.original_urlopen = app.urlopen
 
     def tearDown(self):
         app.fetch_access_sheet_rows = self.original_fetch
+        app.urlopen = self.original_urlopen
         if self.original_api_key is None:
             os.environ.pop("ORACLE_BACKEND_API_KEY", None)
         else:
@@ -32,6 +50,14 @@ class AccessCodeValidationTests(unittest.TestCase):
             os.environ.pop("ORACLE_ACCESS_CODES_JSON", None)
         else:
             os.environ["ORACLE_ACCESS_CODES_JSON"] = self.original_env_codes
+        if self.original_validation_url is None:
+            os.environ.pop("ORACLE_ACCESS_VALIDATION_URL", None)
+        else:
+            os.environ["ORACLE_ACCESS_VALIDATION_URL"] = self.original_validation_url
+        if self.original_validation_secret is None:
+            os.environ.pop("ORACLE_ACCESS_VALIDATION_SECRET", None)
+        else:
+            os.environ["ORACLE_ACCESS_VALIDATION_SECRET"] = self.original_validation_secret
 
     def rows(self):
         return [
@@ -214,6 +240,40 @@ class AccessCodeValidationTests(unittest.TestCase):
         self.assertFalse(result["valid"])
         self.assertEqual(result["status"], "EXPIRED")
         self.assertEqual(result["expiration_date"], "2026-05-31")
+
+    def test_external_access_validator_can_validate_code(self):
+        os.environ["ORACLE_BACKEND_API_KEY"] = "secret"
+        os.environ["ORACLE_ACCESS_VALIDATION_URL"] = "https://script.google.com/macros/s/example/exec"
+        os.environ["ORACLE_ACCESS_VALIDATION_SECRET"] = "bridge-secret"
+
+        def fake_urlopen(request, timeout):
+            payload = json.loads(request.data.decode("utf-8"))
+            self.assertEqual(payload["access_code"], "SCRIPT-CODE")
+            self.assertEqual(payload["secret"], "bridge-secret")
+            return FakeUrlResponse(
+                {
+                    "valid": True,
+                    "status": "ACTIVE",
+                    "message": "Access confirmed.",
+                    "expiration_date": "2099-12-31",
+                    "permission_level": "VIP",
+                    "reading_type": "FOUNDER",
+                }
+            )
+
+        app.urlopen = fake_urlopen
+        response = app.validate_access_code(
+            app.AccessCodeValidationRequest(access_code="SCRIPT-CODE"),
+            FakeRequest({"Authorization": "Bearer secret"}),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = json.loads(response.body)
+        self.assertTrue(payload["valid"])
+        self.assertEqual(payload["status"], "ACTIVE")
+        self.assertEqual(payload["expiration_date"], "2099-12-31")
+        self.assertEqual(payload["permission_level"], "VIP")
+        self.assertEqual(payload["reading_type"], "FOUNDER")
 
 
 if __name__ == "__main__":

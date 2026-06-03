@@ -1423,6 +1423,48 @@ def fetch_access_sheet_rows() -> list[list[object]]:
     return values
 
 
+def validate_access_code_with_external_service(access_code: str) -> dict | None:
+    validation_url = os.environ.get("ORACLE_ACCESS_VALIDATION_URL", "").strip()
+    if not validation_url:
+        return None
+
+    validation_secret = os.environ.get("ORACLE_ACCESS_VALIDATION_SECRET", "").strip()
+    payload = json.dumps({"access_code": access_code, "secret": validation_secret}).encode("utf-8")
+    request = UrlRequest(
+        validation_url,
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "User-Agent": USER_AGENT,
+        },
+        method="POST",
+    )
+    logger.info("external access validation start")
+    with urlopen(request, timeout=GEOCODE_TIMEOUT_SECONDS) as response:
+        result = json.load(response)
+    logger.info("external access validation response status=%s valid=%s", result.get("status"), result.get("valid"))
+
+    if not isinstance(result, dict):
+        raise RuntimeError("External access validation returned malformed JSON.")
+
+    valid = bool(result.get("valid"))
+    status = str(result.get("status") or ("ACTIVE" if valid else "INVALID")).strip().upper()
+    message = str(result.get("message") or ("Access confirmed." if valid else "Invalid access code.")).strip()
+    expiration_date = result.get("expiration_date") or result.get("expires_on") or result.get("expires")
+    permission_level = result.get("permission_level") or result.get("permission")
+    reading_type = result.get("reading_type") or result.get("type")
+
+    return access_response(
+        valid,
+        status,
+        message,
+        expiration_date=str(expiration_date).strip() if expiration_date else None,
+        permission_level=str(permission_level).strip() if permission_level else None,
+        reading_type=str(reading_type).strip() if reading_type else None,
+        include_null_fields=valid,
+    )
+
+
 def location_match_text(match: dict) -> str:
     return normalize_place(
         " ".join(str(match.get(field, "")) for field in ("name", "admin1", "admin2", "admin3", "admin4", "country", "country_code"))
@@ -2382,7 +2424,7 @@ def custom_openapi():
     validate_access_operation = {
         "summary": "Validate access code",
         "description": (
-            "Read-only access-code validation against private Render env codes, published CSV, or Google Sheets API. "
+            "Read-only access-code validation against private Render env codes, Apps Script, published CSV, or Google Sheets API. "
             "Requires Authorization: Bearer <ORACLE_BACKEND_API_KEY>. "
             "Does not write to Google Sheets and does not expose the full code list."
         ),
@@ -2638,6 +2680,11 @@ def validate_access_code(payload: AccessCodeValidationRequest, request: Request)
         )
 
     try:
+        external_result = validate_access_code_with_external_service(payload.access_code)
+        if external_result is not None:
+            logger.info("access code external validation status=%s valid=%s", external_result.get("status"), external_result.get("valid"))
+            return json_response(external_result)
+
         rows = fetch_access_sheet_rows()
         result = validate_access_code_from_rows(payload.access_code, rows)
         logger.info("access code validation status=%s valid=%s", result.get("status"), result.get("valid"))
