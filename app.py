@@ -1429,15 +1429,14 @@ def validate_access_code_with_external_service(access_code: str) -> dict | None:
         return None
 
     validation_secret = os.environ.get("ORACLE_ACCESS_VALIDATION_SECRET", "").strip()
-    payload = json.dumps({"access_code": access_code, "secret": validation_secret}).encode("utf-8")
+    separator = "&" if "?" in validation_url else "?"
+    request_url = f"{validation_url}{separator}{urlencode({'access_code': access_code, 'secret': validation_secret})}"
     request = UrlRequest(
-        validation_url,
-        data=payload,
+        request_url,
         headers={
-            "Content-Type": "application/json",
             "User-Agent": USER_AGENT,
         },
-        method="POST",
+        method="GET",
     )
     logger.info("external access validation start")
     with urlopen(request, timeout=GEOCODE_TIMEOUT_SECONDS) as response:

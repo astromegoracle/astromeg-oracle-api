@@ -3,6 +3,7 @@ import os
 import tempfile
 import unittest
 from datetime import datetime
+from urllib.parse import parse_qs, urlparse
 from zoneinfo import ZoneInfo
 
 import app
@@ -247,9 +248,9 @@ class AccessCodeValidationTests(unittest.TestCase):
         os.environ["ORACLE_ACCESS_VALIDATION_SECRET"] = "bridge-secret"
 
         def fake_urlopen(request, timeout):
-            payload = json.loads(request.data.decode("utf-8"))
-            self.assertEqual(payload["access_code"], "SCRIPT-CODE")
-            self.assertEqual(payload["secret"], "bridge-secret")
+            payload = parse_qs(urlparse(request.full_url).query)
+            self.assertEqual(payload["access_code"], ["SCRIPT-CODE"])
+            self.assertEqual(payload["secret"], ["bridge-secret"])
             return FakeUrlResponse(
                 {
                     "valid": True,
