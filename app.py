@@ -2571,6 +2571,7 @@ def custom_openapi():
     }
     schema.pop("components", None)
     schema["components"] = {
+        "schemas": {},
         "securitySchemes": {
             "BearerAuth": {
                 "type": "http",
