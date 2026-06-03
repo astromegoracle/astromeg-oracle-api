@@ -1330,7 +1330,53 @@ def fetch_access_sheet_csv_rows(csv_url: str) -> list[list[object]]:
     return rows
 
 
+def access_code_rows_from_env() -> list[list[object]] | None:
+    raw_codes = os.environ.get("ORACLE_ACCESS_CODES_JSON", "").strip()
+    if not raw_codes:
+        return None
+
+    try:
+        payload = json.loads(raw_codes)
+    except json.JSONDecodeError as error:
+        raise RuntimeError("ORACLE_ACCESS_CODES_JSON must be valid JSON.") from error
+
+    rows: list[list[object]] = [["Access Code", "Expiration Date", "Status", "Permission Level", "Reading Type"]]
+
+    if isinstance(payload, dict):
+        iterable = [
+            {"access_code": code, **details} if isinstance(details, dict) else {"access_code": code, "expiration_date": details}
+            for code, details in payload.items()
+        ]
+    elif isinstance(payload, list):
+        iterable = payload
+    else:
+        raise RuntimeError("ORACLE_ACCESS_CODES_JSON must be a JSON object or array.")
+
+    for item in iterable:
+        if not isinstance(item, dict):
+            raise RuntimeError("Each ORACLE_ACCESS_CODES_JSON entry must be an object.")
+
+        access_code = str(item.get("access_code") or item.get("code") or "").strip()
+        expiration_date = str(item.get("expiration_date") or item.get("expires") or item.get("expires_on") or "").strip()
+        status = str(item.get("status") or "ACTIVE").strip()
+        permission_level = str(item.get("permission_level") or item.get("permission") or "VIP").strip()
+        reading_type = str(item.get("reading_type") or item.get("type") or "30DAY").strip()
+
+        if not access_code:
+            raise RuntimeError("Each ORACLE_ACCESS_CODES_JSON entry must include access_code.")
+        if not expiration_date:
+            raise RuntimeError(f"Access code {access_code} is missing expiration_date.")
+
+        rows.append([access_code, expiration_date, status, permission_level, reading_type])
+
+    return rows
+
+
 def fetch_access_sheet_rows() -> list[list[object]]:
+    env_rows = access_code_rows_from_env()
+    if env_rows is not None:
+        return env_rows
+
     csv_url = os.environ.get("GOOGLE_SHEET_CSV_URL", "").strip()
     if csv_url:
         return fetch_access_sheet_csv_rows(csv_url)
@@ -1340,7 +1386,7 @@ def fetch_access_sheet_rows() -> list[list[object]]:
     tab_name = os.environ.get("GOOGLE_SHEET_TAB_NAME", "").strip()
 
     if not service_account_json or not sheet_id or not tab_name:
-        raise RuntimeError("Missing Google Sheets access configuration. Set GOOGLE_SHEET_CSV_URL or Google service account variables.")
+        raise RuntimeError("Missing access-code configuration. Set ORACLE_ACCESS_CODES_JSON, GOOGLE_SHEET_CSV_URL, or Google service account variables.")
 
     try:
         from google.auth.transport.requests import Request as GoogleAuthRequest
@@ -2336,7 +2382,7 @@ def custom_openapi():
     validate_access_operation = {
         "summary": "Validate access code",
         "description": (
-            "Read-only access-code validation against the configured Google Sheet via published CSV or Google Sheets API. "
+            "Read-only access-code validation against private Render env codes, published CSV, or Google Sheets API. "
             "Requires Authorization: Bearer <ORACLE_BACKEND_API_KEY>. "
             "Does not write to Google Sheets and does not expose the full code list."
         ),

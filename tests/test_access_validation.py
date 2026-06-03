@@ -20,6 +20,7 @@ class AccessCodeValidationTests(unittest.TestCase):
     def setUp(self):
         self.original_fetch = app.fetch_access_sheet_rows
         self.original_api_key = os.environ.get("ORACLE_BACKEND_API_KEY")
+        self.original_env_codes = os.environ.get("ORACLE_ACCESS_CODES_JSON")
 
     def tearDown(self):
         app.fetch_access_sheet_rows = self.original_fetch
@@ -27,6 +28,10 @@ class AccessCodeValidationTests(unittest.TestCase):
             os.environ.pop("ORACLE_BACKEND_API_KEY", None)
         else:
             os.environ["ORACLE_BACKEND_API_KEY"] = self.original_api_key
+        if self.original_env_codes is None:
+            os.environ.pop("ORACLE_ACCESS_CODES_JSON", None)
+        else:
+            os.environ["ORACLE_ACCESS_CODES_JSON"] = self.original_env_codes
 
     def rows(self):
         return [
@@ -160,6 +165,55 @@ class AccessCodeValidationTests(unittest.TestCase):
             self.assertEqual(result["reading_type"], "30DAY")
         finally:
             os.unlink(temp_file_path)
+
+    def test_private_env_codes_can_validate_code(self):
+        os.environ["ORACLE_BACKEND_API_KEY"] = "secret"
+        os.environ["ORACLE_ACCESS_CODES_JSON"] = json.dumps(
+            [
+                {
+                    "access_code": "ENV-CODE",
+                    "expiration_date": "2099-12-31",
+                    "status": "ACTIVE",
+                    "permission_level": "VIP",
+                    "reading_type": "FOUNDER",
+                }
+            ]
+        )
+
+        response = app.validate_access_code(
+            app.AccessCodeValidationRequest(access_code=" env-code "),
+            FakeRequest({"Authorization": "Bearer secret"}),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = json.loads(response.body)
+        self.assertTrue(payload["valid"])
+        self.assertEqual(payload["expiration_date"], "2099-12-31")
+        self.assertEqual(payload["permission_level"], "VIP")
+        self.assertEqual(payload["reading_type"], "FOUNDER")
+        self.assertIsNone(payload["customer_name"])
+        self.assertIsNone(payload["email"])
+
+    def test_private_env_code_object_format_expires_automatically(self):
+        os.environ["ORACLE_ACCESS_CODES_JSON"] = json.dumps(
+            {
+                "EXPIRED-ENV": {
+                    "expiration_date": "2026-05-31",
+                    "status": "ACTIVE",
+                }
+            }
+        )
+
+        rows = app.fetch_access_sheet_rows()
+        result = app.validate_access_code_from_rows(
+            "EXPIRED-ENV",
+            rows,
+            now=datetime(2026, 6, 4, 12, 0, tzinfo=MANILA),
+        )
+
+        self.assertFalse(result["valid"])
+        self.assertEqual(result["status"], "EXPIRED")
+        self.assertEqual(result["expiration_date"], "2026-05-31")
 
 
 if __name__ == "__main__":
