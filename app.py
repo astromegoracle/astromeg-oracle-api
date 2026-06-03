@@ -1,5 +1,7 @@
 from datetime import date, datetime, timedelta, timezone
+import csv
 import hmac
+import io
 import json
 import logging
 import os
@@ -1317,13 +1319,28 @@ def validate_access_code_from_rows(
     return access_response(False, "INVALID", "Invalid access code.")
 
 
+def fetch_access_sheet_csv_rows(csv_url: str) -> list[list[object]]:
+    request = UrlRequest(csv_url, headers={"User-Agent": USER_AGENT})
+    with urlopen(request, timeout=GEOCODE_TIMEOUT_SECONDS) as response:
+        raw_csv = response.read().decode("utf-8-sig")
+
+    rows = list(csv.reader(io.StringIO(raw_csv)))
+    if not rows:
+        raise RuntimeError("Published Google Sheet CSV is empty.")
+    return rows
+
+
 def fetch_access_sheet_rows() -> list[list[object]]:
+    csv_url = os.environ.get("GOOGLE_SHEET_CSV_URL", "").strip()
+    if csv_url:
+        return fetch_access_sheet_csv_rows(csv_url)
+
     service_account_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
     sheet_id = os.environ.get("GOOGLE_SHEET_ID", "").strip()
     tab_name = os.environ.get("GOOGLE_SHEET_TAB_NAME", "").strip()
 
     if not service_account_json or not sheet_id or not tab_name:
-        raise RuntimeError("Missing Google Sheets access configuration.")
+        raise RuntimeError("Missing Google Sheets access configuration. Set GOOGLE_SHEET_CSV_URL or Google service account variables.")
 
     try:
         from google.auth.transport.requests import Request as GoogleAuthRequest
@@ -2319,7 +2336,7 @@ def custom_openapi():
     validate_access_operation = {
         "summary": "Validate access code",
         "description": (
-            "Read-only access-code validation against the configured Google Sheet. "
+            "Read-only access-code validation against the configured Google Sheet via published CSV or Google Sheets API. "
             "Requires Authorization: Bearer <ORACLE_BACKEND_API_KEY>. "
             "Does not write to Google Sheets and does not expose the full code list."
         ),

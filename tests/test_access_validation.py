@@ -1,5 +1,6 @@
 import json
 import os
+import tempfile
 import unittest
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -140,6 +141,25 @@ class AccessCodeValidationTests(unittest.TestCase):
         payload = json.loads(response.body)
         self.assertFalse(payload["valid"])
         self.assertEqual(payload["status"], "ERROR")
+
+    def test_published_csv_rows_can_validate_code(self):
+        csv_text = (
+            "Access Code,Expiration Date,Status,Customer Name,Email,Permission Level,Reading Type\n"
+            "CSV-CODE,2099-10-31,ACTIVE,,,,\n"
+        )
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".csv", delete=False) as temp_file:
+            temp_file.write(csv_text)
+            temp_file_path = temp_file.name
+
+        try:
+            rows = app.fetch_access_sheet_csv_rows(f"file://{temp_file_path}")
+            result = app.validate_access_code_from_rows("csv-code", rows)
+            self.assertTrue(result["valid"])
+            self.assertEqual(result["expiration_date"], "2099-10-31")
+            self.assertEqual(result["permission_level"], "VIP")
+            self.assertEqual(result["reading_type"], "30DAY")
+        finally:
+            os.unlink(temp_file_path)
 
 
 if __name__ == "__main__":
