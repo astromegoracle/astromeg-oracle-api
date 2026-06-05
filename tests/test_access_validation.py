@@ -39,10 +39,12 @@ class AccessCodeValidationTests(unittest.TestCase):
         self.original_validation_url = os.environ.get("ORACLE_ACCESS_VALIDATION_URL")
         self.original_validation_secret = os.environ.get("ORACLE_ACCESS_VALIDATION_SECRET")
         self.original_urlopen = app.urlopen
+        app.ACCESS_CACHE.clear()
 
     def tearDown(self):
         app.fetch_access_sheet_rows = self.original_fetch
         app.urlopen = self.original_urlopen
+        app.ACCESS_CACHE.clear()
         if self.original_api_key is None:
             os.environ.pop("ORACLE_BACKEND_API_KEY", None)
         else:
@@ -275,6 +277,45 @@ class AccessCodeValidationTests(unittest.TestCase):
         self.assertEqual(payload["expiration_date"], "2099-12-31")
         self.assertEqual(payload["permission_level"], "VIP")
         self.assertEqual(payload["reading_type"], "FOUNDER")
+
+    def test_recent_valid_access_code_uses_cache_when_external_validation_times_out(self):
+        os.environ["ORACLE_BACKEND_API_KEY"] = "secret"
+        os.environ["ORACLE_ACCESS_VALIDATION_URL"] = "https://script.google.com/macros/s/example/exec"
+        os.environ["ORACLE_ACCESS_VALIDATION_SECRET"] = "bridge-secret"
+        calls = {"count": 0}
+
+        def fake_urlopen(request, timeout):
+            calls["count"] += 1
+            if calls["count"] == 1:
+                return FakeUrlResponse(
+                    {
+                        "valid": True,
+                        "status": "ACTIVE",
+                        "message": "Access confirmed.",
+                        "expiration_date": "2099-12-31",
+                        "permission_level": "VIP",
+                        "reading_type": "FOUNDER",
+                    }
+                )
+            raise TimeoutError("simulated timeout")
+
+        app.urlopen = fake_urlopen
+        first_response = app.validate_access_code(
+            app.AccessCodeValidationRequest(access_code="SCRIPT-CODE"),
+            FakeRequest({"Authorization": "Bearer secret"}),
+        )
+        second_response = app.validate_access_code(
+            app.AccessCodeValidationRequest(access_code="SCRIPT-CODE"),
+            FakeRequest({"Authorization": "Bearer secret"}),
+        )
+
+        self.assertEqual(first_response.status_code, 200)
+        first_payload = json.loads(first_response.body)
+        second_payload = json.loads(second_response.body)
+        self.assertTrue(first_payload["valid"])
+        self.assertTrue(second_payload["valid"])
+        self.assertEqual(second_payload["status"], "ACTIVE")
+        self.assertEqual(second_payload["cache"], "hit")
 
 
 if __name__ == "__main__":

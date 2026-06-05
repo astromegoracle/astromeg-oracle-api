@@ -4,6 +4,7 @@ import hmac
 import io
 import json
 import logging
+import math
 import os
 from pathlib import Path
 import time
@@ -18,7 +19,7 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictInt
 import swisseph as swe
 
 
@@ -198,6 +199,84 @@ class ProgressedChartRequest(BaseModel):
     progression_hour: int = 12
     progression_minute: int = 0
     progression_location: Optional[str] = None
+
+
+class HarmonicChartRequest(BaseModel):
+    birth_year: int
+    birth_month: int
+    birth_day: int
+    birth_hour: int
+    birth_minute: int
+    birthplace: str
+    harmonic_number: int = Field(..., ge=1, le=360)
+    aspect_orb: float = Field(default=2.0, ge=0.0, le=10.0)
+
+
+class HarmonicChartsRequest(BaseModel):
+    name: Optional[str] = None
+    birth_date: date
+    birth_time: Optional[str] = None
+    birth_place: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    timezone: Optional[str] = None
+    harmonics: list[StrictInt] = Field(default_factory=lambda: [5, 8, 10, 11])
+    points: list[str] = Field(
+        default_factory=lambda: [
+            "Sun",
+            "Moon",
+            "Mercury",
+            "Venus",
+            "Mars",
+            "Jupiter",
+            "Saturn",
+            "Uranus",
+            "Neptune",
+            "Pluto",
+            "True Node",
+            "Chiron",
+        ]
+    )
+    orb: float = 3.0
+    response_level: str = "standard"
+    include_clusters: bool = True
+    include_natal_reference: bool = False
+    include_houses: bool = False
+
+
+class RelationshipBirthInput(BaseModel):
+    name: Optional[str] = None
+    birth_date: date
+    birth_time: str
+    birth_place: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    timezone: Optional[str] = None
+
+
+class RelationshipChartRequest(BaseModel):
+    person_a: RelationshipBirthInput
+    person_b: RelationshipBirthInput
+    points: list[str] = Field(
+        default_factory=lambda: [
+            "Sun",
+            "Moon",
+            "Mercury",
+            "Venus",
+            "Mars",
+            "Jupiter",
+            "Saturn",
+            "Uranus",
+            "Neptune",
+            "Pluto",
+            "True Node",
+            "Lilith",
+            "Chiron",
+            "ASC",
+            "MC",
+        ]
+    )
+    include_houses: bool = True
 
 
 class AccessCodeValidationRequest(BaseModel):
@@ -634,6 +713,179 @@ SOLAR_ARC_DIRECTIONS_RESPONSE_SCHEMA = {
         "body_count": {"type": "integer"},
     },
 }
+HARMONIC_CHART_REQUEST_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": [
+        "birth_year",
+        "birth_month",
+        "birth_day",
+        "birth_hour",
+        "birth_minute",
+        "birthplace",
+        "harmonic_number",
+    ],
+    "properties": {
+        "birth_year": {"type": "integer", "example": 1972},
+        "birth_month": {"type": "integer", "example": 7},
+        "birth_day": {"type": "integer", "example": 31},
+        "birth_hour": {"type": "integer", "example": 22},
+        "birth_minute": {"type": "integer", "example": 50},
+        "birthplace": {"type": "string", "example": "Quezon City, Philippines"},
+        "harmonic_number": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 360,
+            "example": 24,
+            "description": "Western harmonic number. This is not a Vedic varga or sidereal divisional chart.",
+        },
+        "aspect_orb": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 10,
+            "default": 2,
+            "example": 2,
+            "description": "Orb in degrees for harmonic conjunction detection.",
+        },
+    },
+}
+HARMONIC_CHART_RESPONSE_SCHEMA = {
+    "type": "object",
+    "additionalProperties": True,
+    "required": [
+        "status",
+        "success",
+        "verified_harmonic_chart",
+        "method",
+        "harmonic_number",
+        "placements",
+        "natal_positions",
+        "chart_text",
+        "placements_text",
+        "body_count",
+        "birth_data",
+    ],
+    "properties": {
+        "status": {"type": "string"},
+        "success": {"type": "boolean"},
+        "message": {"type": "string"},
+        "verified_harmonic_chart": {"type": "boolean"},
+        "method": {"type": "string"},
+        "zodiac": {"type": "string"},
+        "harmonic_number": {"type": "integer"},
+        "houses_supported": {"type": "boolean"},
+        "house_method": {"type": "string"},
+        "placements": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+        "natal_positions": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+        "harmonic_angles": {"type": "object", "additionalProperties": True},
+        "conjunctions": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+        "chart_text": {"type": "string"},
+        "placements_text": {"type": "string"},
+        "body_count": {"type": "integer"},
+        "birth_data": {"type": "object", "additionalProperties": True},
+    },
+}
+BULK_HARMONIC_CHART_REQUEST_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["birth_date"],
+    "properties": {
+        "name": {"type": "string", "example": "Meg"},
+        "birth_date": {"type": "string", "format": "date", "example": "1972-07-31"},
+        "birth_time": {"type": "string", "example": "22:50"},
+        "birth_place": {"type": "string", "example": "Quezon City, Philippines"},
+        "latitude": {"type": "number", "example": 14.6760},
+        "longitude": {"type": "number", "example": 121.0437},
+        "timezone": {"type": "string", "example": "Asia/Manila"},
+        "harmonics": {
+            "type": "array",
+            "items": {"type": "integer", "minimum": 1, "maximum": 360},
+            "default": [5, 8, 10, 11],
+            "example": [5, 8, 10, 11],
+            "description": "Western harmonic numbers only. No Vedic or sidereal divisional charts.",
+        },
+        "points": {
+            "type": "array",
+            "items": {"type": "string"},
+            "default": ["Sun", "Moon", "Mercury", "Venus", "Mars", "Jupiter", "Saturn", "Uranus", "Neptune", "Pluto", "True Node", "Chiron"],
+        },
+        "orb": {"type": "number", "minimum": 0.5, "maximum": 5, "default": 3},
+        "response_level": {"type": "string", "enum": ["compact", "standard", "full"], "default": "standard"},
+        "include_clusters": {"type": "boolean", "default": True},
+        "include_natal_reference": {"type": "boolean", "default": False},
+        "include_houses": {"type": "boolean", "default": False},
+    },
+}
+BULK_HARMONIC_CHART_RESPONSE_SCHEMA = {
+    "type": "object",
+    "additionalProperties": True,
+    "required": ["status", "success", "chart_type", "settings", "harmonic_charts", "warnings"],
+    "properties": {
+        "status": {"type": "string"},
+        "success": {"type": "boolean"},
+        "message": {"type": "string"},
+        "chart_type": {"type": "string"},
+        "settings": {"type": "object", "additionalProperties": True},
+        "birth_data": {"type": "object", "additionalProperties": True},
+        "requested_harmonics": {"type": "array", "items": {"type": "integer"}},
+        "harmonic_charts": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+        "natal_reference": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+        "warnings": {"type": "array", "items": {"type": "string"}},
+        "body_count": {"type": "integer"},
+    },
+}
+RELATIONSHIP_BIRTH_INPUT_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["birth_date", "birth_time"],
+    "properties": {
+        "name": {"type": "string", "example": "Person A"},
+        "birth_date": {"type": "string", "format": "date", "example": "1972-07-31"},
+        "birth_time": {"type": "string", "example": "22:50"},
+        "birth_place": {"type": "string", "example": "Quezon City, Philippines"},
+        "latitude": {"type": "number", "example": 14.676},
+        "longitude": {"type": "number", "example": 121.0437},
+        "timezone": {"type": "string", "example": "Asia/Manila"},
+    },
+}
+RELATIONSHIP_CHART_REQUEST_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["person_a", "person_b"],
+    "properties": {
+        "person_a": RELATIONSHIP_BIRTH_INPUT_SCHEMA,
+        "person_b": RELATIONSHIP_BIRTH_INPUT_SCHEMA,
+        "points": {
+            "type": "array",
+            "items": {"type": "string"},
+            "default": ["Sun", "Moon", "Mercury", "Venus", "Mars", "Jupiter", "Saturn", "Uranus", "Neptune", "Pluto", "True Node", "Lilith", "Chiron", "ASC", "MC"],
+        },
+        "include_houses": {"type": "boolean", "default": True},
+    },
+}
+RELATIONSHIP_CHART_RESPONSE_SCHEMA = {
+    "type": "object",
+    "additionalProperties": True,
+    "required": ["status", "success", "chart_type", "method", "placements", "birth_data", "chart_text", "placements_text", "body_count"],
+    "properties": {
+        "status": {"type": "string"},
+        "success": {"type": "boolean"},
+        "message": {"type": "string"},
+        "verified_relationship_chart": {"type": "boolean"},
+        "chart_type": {"type": "string"},
+        "method": {"type": "string"},
+        "settings": {"type": "object", "additionalProperties": True},
+        "birth_data": {"type": "object", "additionalProperties": True},
+        "calculation_data": {"type": "object", "additionalProperties": True},
+        "placements": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+        "angles": {"type": "object", "additionalProperties": True},
+        "houses": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+        "warnings": {"type": "array", "items": {"type": "string"}},
+        "chart_text": {"type": "string"},
+        "placements_text": {"type": "string"},
+        "body_count": {"type": "integer"},
+    },
+}
 
 
 COMMON_PLACE_CACHE: dict[str, PlaceResolution] = {
@@ -789,6 +1041,72 @@ PLANETS = {
     "Chiron": swe.CHIRON,
 }
 
+MAX_HARMONIC_NUMBER = 360
+MAX_HARMONIC_COUNT = 20
+DEFAULT_HARMONIC_NUMBERS = [5, 8, 10, 11]
+DEFAULT_HARMONIC_POINTS = [
+    "Sun",
+    "Moon",
+    "Mercury",
+    "Venus",
+    "Mars",
+    "Jupiter",
+    "Saturn",
+    "Uranus",
+    "Neptune",
+    "Pluto",
+    "True Node",
+    "Chiron",
+]
+ANGLE_POINT_ALIASES = {
+    "ASC": "ASC",
+    "ASCENDANT": "ASC",
+    "AC": "ASC",
+    "MC": "MC",
+    "MIDHEAVEN": "MC",
+}
+PLANET_POINT_ALIASES = {
+    "SUN": ("Sun", "Sun"),
+    "MOON": ("Moon", "Moon"),
+    "MERCURY": ("Mercury", "Mercury"),
+    "VENUS": ("Venus", "Venus"),
+    "MARS": ("Mars", "Mars"),
+    "JUPITER": ("Jupiter", "Jupiter"),
+    "SATURN": ("Saturn", "Saturn"),
+    "URANUS": ("Uranus", "Uranus"),
+    "NEPTUNE": ("Neptune", "Neptune"),
+    "PLUTO": ("Pluto", "Pluto"),
+    "TRUE NODE": ("True Node", "North Node"),
+    "NORTH NODE": ("True Node", "North Node"),
+    "NODE": ("True Node", "North Node"),
+    "LILITH": ("Lilith", "Lilith"),
+    "CHIRON": ("Chiron", "Chiron"),
+}
+HARMONIC_THEMES = {
+    1: "Natal identity",
+    2: "Polarity, projection, relationship mirroring",
+    3: "Flow, inherited gifts, natural ease",
+    4: "Challenge, tension, ambition, manifestation",
+    5: "Creative genius, talent, pattern recognition",
+    6: "Adjustment, service, refinement, practical integration",
+    7: "Mystical destiny, fate, divine compulsion",
+    8: "Power, ambition, sexuality, shared resources, transformation",
+    9: "Spiritual mastery, wisdom, teacher frequency",
+    10: "Career achievement, public structure, legacy",
+    11: "Visionary contribution, audience, community, future vision",
+    12: "Hidden karma, surrender, unconscious integration",
+    15: "Desire, magnetism, material temptation",
+    22: "Master builder, extreme ambition, legacy force",
+    24: "Grace, learning mastery, integrated talent",
+    36: "Structured mysticism",
+    48: "Grand material blueprint",
+    60: "Karmic fine-tuning",
+    72: "Master alchemist",
+}
+
+ACCESS_CACHE_TTL_SECONDS = int(os.environ.get("ORACLE_ACCESS_CACHE_TTL_SECONDS", "21600"))
+ACCESS_CACHE: dict[str, tuple[float, dict]] = {}
+
 TEST_BIRTHPLACES = (
     "Quezon City, Philippines",
     "Manila, Philippines",
@@ -893,6 +1211,50 @@ def calculate_solar_arc_longitude(natal_sun_longitude: float, progressed_sun_lon
 
 def apply_solar_arc_longitude(absolute_degree: float, solar_arc: float) -> float:
     return normalize_longitude(absolute_degree + solar_arc)
+
+
+def harmonic_longitude(absolute_degree: float, harmonic_number: int) -> float:
+    return normalize_longitude(absolute_degree * harmonic_number)
+
+
+def normalize_degrees(value: float) -> float:
+    return normalize_longitude(value)
+
+
+def longitude_to_sign_degree(longitude: float) -> dict[str, object]:
+    return zodiac_position(longitude)
+
+
+def calculate_harmonic_longitude(natal_longitude: float, harmonic_number: int) -> float:
+    return harmonic_longitude(natal_longitude, harmonic_number)
+
+
+def angular_separation(longitude_a: float, longitude_b: float) -> float:
+    return abs(((longitude_a - longitude_b + 180.0) % 360.0) - 180.0)
+
+
+def circular_distance(longitude_a: float, longitude_b: float) -> float:
+    return angular_separation(longitude_a, longitude_b)
+
+
+def circular_mean(longitudes: list[float]) -> float:
+    if not longitudes:
+        return 0.0
+    sin_sum = sum(math.sin(math.radians(longitude)) for longitude in longitudes)
+    cos_sum = sum(math.cos(math.radians(longitude)) for longitude in longitudes)
+    if abs(sin_sum) < 1e-12 and abs(cos_sum) < 1e-12:
+        return normalize_longitude(longitudes[0])
+    return normalize_longitude(math.degrees(math.atan2(sin_sum, cos_sum)))
+
+
+def get_harmonic_theme(harmonic_number: int) -> dict[str, str]:
+    theme = HARMONIC_THEMES.get(harmonic_number)
+    if theme:
+        return {"theme": theme}
+    return {
+        "theme": "Custom harmonic",
+        "theme_note": "No predefined Astromeg theme for this harmonic. Interpret through placements, clusters, and natal anchoring only.",
+    }
 
 
 def zodiac_position(absolute_degree: float) -> dict[str, object]:
@@ -1254,6 +1616,36 @@ def access_response(
         if value is not None or include_null_fields:
             response[key] = value
     return response
+
+
+def get_cached_access_response(access_code: str) -> dict | None:
+    cache_key = normalize_access_code(access_code)
+    cached = ACCESS_CACHE.get(cache_key)
+    if cached is None:
+        return None
+
+    expires_at, response = cached
+    if time.time() >= expires_at:
+        ACCESS_CACHE.pop(cache_key, None)
+        return None
+
+    cached_response = dict(response)
+    cached_response["cache"] = "hit"
+    cached_response["message"] = cached_response.get("message") or "Access confirmed."
+    logger.info("access code cache hit status=%s valid=%s", cached_response.get("status"), cached_response.get("valid"))
+    return cached_response
+
+
+def cache_access_response(access_code: str, response: dict) -> None:
+    if not response.get("valid"):
+        return
+
+    status = str(response.get("status") or "").strip().upper()
+    if status not in VALID_ACCESS_STATUSES:
+        return
+
+    ACCESS_CACHE[normalize_access_code(access_code)] = (time.time() + ACCESS_CACHE_TTL_SECONDS, dict(response))
+    logger.info("access code cache saved status=%s ttl_seconds=%s", status, ACCESS_CACHE_TTL_SECONDS)
 
 
 def validate_access_code_from_rows(
@@ -1809,6 +2201,858 @@ def action_chart_payload(chart: ChartResponse) -> dict:
         "midheaven": round(chart.midheaven % 360, 2),
         "midheaven_position": zodiac_position(chart.midheaven),
         "aspects": [],
+    }
+
+
+def harmonic_chart_text(harmonic_number: int, placements: list[dict]) -> str:
+    formatted = "\n".join(
+        f"{placement['body']}: {placement['formatted']}"
+        for placement in placements
+    )
+    return f"VERIFIED_ASTROMEG_HARMONIC_CHART_DATA\nH{harmonic_number} Western Tropical Harmonic\n{formatted}"
+
+
+def harmonic_placements_text(harmonic_number: int, placements: list[dict]) -> str:
+    formatted = "; ".join(
+        f"{placement['body']}: {placement['formatted']}"
+        for placement in placements
+    )
+    return f"SUCCESS | Western harmonic chart calculated | harmonic=H{harmonic_number} | body_count={len(placements)} | {formatted}"
+
+
+def harmonic_conjunctions(placements: list[dict], orb: float) -> list[dict]:
+    conjunctions = []
+    for first_index, first in enumerate(placements):
+        for second in placements[first_index + 1:]:
+            separation = angular_separation(first["absolute_degree"], second["absolute_degree"])
+            if separation <= orb:
+                conjunctions.append(
+                    {
+                        "body_a": first["body"],
+                        "body_b": second["body"],
+                        "aspect": "Conjunction",
+                        "orb": round(separation, 6),
+                        "orb_degrees": separation,
+                        "body_a_position": first["position"],
+                        "body_b_position": second["position"],
+                    }
+                )
+    return conjunctions
+
+
+def harmonic_birth_data_payload(request: HarmonicChartRequest, natal_place: PlaceResolution, birth_utc: datetime) -> dict:
+    return {
+        "year": request.birth_year,
+        "month": request.birth_month,
+        "day": request.birth_day,
+        "hour": request.birth_hour,
+        "minute": request.birth_minute,
+        "birthplace": request.birthplace,
+        "resolved_place": natal_place.birthplace_resolved,
+        "latitude": natal_place.latitude,
+        "longitude": natal_place.longitude,
+        "timezone": natal_place.timezone_name,
+        "birth_utc": birth_utc.isoformat().replace("+00:00", "Z"),
+        "zodiac": ZODIAC,
+        "house_system": "Not used for Western harmonic placements",
+    }
+
+
+def calculate_harmonic_chart_payload(request: HarmonicChartRequest) -> dict:
+    natal_place = resolve_birthplace(request.birthplace)
+    birth_utc = local_datetime_to_utc(
+        request.birth_year,
+        request.birth_month,
+        request.birth_day,
+        request.birth_hour,
+        request.birth_minute,
+        natal_place.timezone_name,
+        "birth",
+    )
+    natal_jd = datetime_to_julian_day_utc(birth_utc)
+    natal_planets = calculate_planets(natal_jd).model_dump(by_alias=True)
+    _natal_houses, _natal_cusp_values, natal_ascendant, natal_midheaven = calculate_houses(
+        natal_jd,
+        natal_place.latitude,
+        natal_place.longitude,
+    )
+
+    natal_positions = [
+        named_position_payload(body, normalize_longitude(longitude))
+        for body, longitude in natal_planets.items()
+    ]
+    placements = []
+    for body, natal_longitude in natal_planets.items():
+        absolute_degree = harmonic_longitude(natal_longitude, request.harmonic_number)
+        position = zodiac_position(absolute_degree)
+        placements.append(
+            {
+                "body": body,
+                "sign": position["sign"],
+                "degree": round(float(position["decimal_degree"]), 2),
+                "decimal_degree": position["decimal_degree"],
+                "absolute_degree": position["absolute_degree"],
+                "formatted": position["formatted"],
+                "position": position,
+                "natal_absolute_degree": normalize_longitude(natal_longitude),
+                "natal_position": zodiac_position(natal_longitude),
+                "harmonic_number": request.harmonic_number,
+            }
+        )
+
+    harmonic_angles = {
+        "ascendant": angle_payload("Ascendant", harmonic_longitude(natal_ascendant, request.harmonic_number)),
+        "midheaven": angle_payload("Midheaven", harmonic_longitude(natal_midheaven, request.harmonic_number)),
+        "source": "Natal ASC/MC multiplied by harmonic number. Houses are not generated.",
+    }
+    chart_text = harmonic_chart_text(request.harmonic_number, placements)
+    placements_text = harmonic_placements_text(request.harmonic_number, placements)
+
+    return {
+        "status": "success",
+        "success": True,
+        "message": "Western harmonic chart calculated successfully",
+        "verified_harmonic_chart": True,
+        "verified_chart_data": True,
+        "method": "Western tropical harmonic chart: natal ecliptic longitudes multiplied by harmonic number and normalized to 0-360.",
+        "zodiac": ZODIAC,
+        "calculation_engine": "Swiss Ephemeris",
+        "harmonic_number": request.harmonic_number,
+        "aspect_orb": request.aspect_orb,
+        "houses_supported": False,
+        "house_method": "Western harmonic charts prioritize planetary harmonic longitudes and aspect resonance. Placidus houses are not fabricated.",
+        "placements": placements,
+        "natal_positions": natal_positions,
+        "harmonic_angles": harmonic_angles,
+        "conjunctions": harmonic_conjunctions(placements, request.aspect_orb),
+        "chart": chart_text,
+        "chart_text": chart_text,
+        "result": placements_text,
+        "placements_text": placements_text,
+        "body_count": len(placements),
+        "birth_data": harmonic_birth_data_payload(request, natal_place, birth_utc),
+    }
+
+
+def parse_harmonic_birth_time(value: str | None) -> tuple[int, int, bool]:
+    if value is None or not str(value).strip():
+        return 12, 0, False
+
+    parts = str(value).strip().split(":")
+    if len(parts) != 2:
+        raise HTTPException(status_code=400, detail="birth_time must use HH:MM format.")
+
+    try:
+        hour = int(parts[0])
+        minute = int(parts[1])
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail="birth_time must use numeric HH:MM format.") from error
+
+    if hour < 0 or hour > 23 or minute < 0 or minute > 59:
+        raise HTTPException(status_code=400, detail="birth_time must be a valid 24-hour local time.")
+
+    return hour, minute, True
+
+
+def normalize_point_name(point: str) -> str:
+    return " ".join(str(point or "").replace("_", " ").strip().upper().split())
+
+
+def resolve_harmonic_birth_location(request: HarmonicChartsRequest) -> PlaceResolution:
+    if request.birth_place and request.birth_place.strip():
+        try:
+            return resolve_birthplace(request.birth_place)
+        except HTTPException as error:
+            raise HTTPException(
+                status_code=error.status_code,
+                detail="Unable to geocode birth_place. Please provide latitude, longitude, and timezone.",
+            ) from error
+
+    if request.latitude is None or request.longitude is None or not request.timezone:
+        raise HTTPException(
+            status_code=400,
+            detail="The harmonic chart endpoint needs birth_place or latitude, longitude, and timezone.",
+        )
+
+    try:
+        ZoneInfo(request.timezone)
+    except ZoneInfoNotFoundError as error:
+        raise HTTPException(status_code=400, detail="Unable to determine timezone for birth location.") from error
+
+    return PlaceResolution(
+        query="coordinates",
+        birthplace_resolved="Coordinates supplied by request",
+        latitude=float(request.latitude),
+        longitude=float(request.longitude),
+        timezone_name=request.timezone,
+    )
+
+
+def validate_harmonic_request_options(request: HarmonicChartsRequest) -> tuple[str, float, list[int]]:
+    response_level = request.response_level.strip().lower()
+    if response_level not in {"compact", "standard", "full"}:
+        raise HTTPException(status_code=400, detail="response_level must be compact, standard, or full.")
+
+    orb = float(request.orb)
+    if orb < 0.5 or orb > 5:
+        raise HTTPException(status_code=400, detail="orb must be between 0.5 and 5 degrees.")
+
+    harmonics = request.harmonics or DEFAULT_HARMONIC_NUMBERS
+    if not harmonics:
+        raise HTTPException(status_code=400, detail="harmonics array must not be empty.")
+    if len(harmonics) > MAX_HARMONIC_COUNT:
+        raise HTTPException(status_code=400, detail="Too many harmonics requested. Maximum allowed per request is 20.")
+
+    for harmonic_number in harmonics:
+        if not isinstance(harmonic_number, int):
+            raise HTTPException(status_code=400, detail="harmonics must contain positive integers only.")
+        if harmonic_number <= 0:
+            raise HTTPException(status_code=400, detail="harmonics must contain positive integers only.")
+        if harmonic_number > MAX_HARMONIC_NUMBER:
+            raise HTTPException(status_code=400, detail="Harmonic number exceeds maximum allowed value of 360.")
+
+    return response_level, orb, harmonics
+
+
+def requested_harmonic_points(
+    request: HarmonicChartsRequest,
+    has_exact_time: bool,
+    warnings: list[str],
+) -> tuple[list[tuple[str, str]], list[str]]:
+    requested_points = request.points or DEFAULT_HARMONIC_POINTS
+    planet_points: list[tuple[str, str]] = []
+    angle_points: list[str] = []
+    seen: set[str] = set()
+
+    for point in requested_points:
+        key = normalize_point_name(point)
+        if key in PLANET_POINT_ALIASES:
+            display_name, source_name = PLANET_POINT_ALIASES[key]
+            if display_name not in seen:
+                planet_points.append((display_name, source_name))
+                seen.add(display_name)
+            continue
+
+        if key in ANGLE_POINT_ALIASES:
+            angle_name = ANGLE_POINT_ALIASES[key]
+            if not has_exact_time:
+                continue
+            if angle_name not in seen:
+                angle_points.append(angle_name)
+                seen.add(angle_name)
+            continue
+
+        if str(point).strip():
+            warnings.append(f"Unsupported point excluded: {point}.")
+
+    if not has_exact_time and any(normalize_point_name(point) in ANGLE_POINT_ALIASES for point in requested_points):
+        warnings.append("ASC and MC require exact birth time and birth location. These points were excluded.")
+
+    if not planet_points and not angle_points:
+        raise HTTPException(status_code=400, detail="No supported harmonic points were requested.")
+
+    return planet_points, angle_points
+
+
+def compact_harmonic_position_payload(point: str, longitude: float) -> dict:
+    position = zodiac_position(longitude)
+    return {
+        "point": point,
+        "longitude": position["absolute_degree"],
+        "position": position["formatted"],
+    }
+
+
+def standard_harmonic_position_payload(
+    point: str,
+    longitude: float,
+    natal_longitude: float | None = None,
+    include_natal_reference: bool = False,
+) -> dict:
+    position = zodiac_position(longitude)
+    payload = {
+        "point": point,
+        "longitude": position["absolute_degree"],
+        "sign": position["sign"],
+        "degree": position["degree"],
+        "minute": position["minute"],
+        "second": position["second"],
+        "decimal_degree": position["decimal_degree"],
+        "position": position["formatted"],
+    }
+    if include_natal_reference and natal_longitude is not None:
+        natal_position = zodiac_position(natal_longitude)
+        payload["natal_longitude"] = natal_position["absolute_degree"]
+        payload["natal_position"] = natal_position["formatted"]
+    return payload
+
+
+def detect_harmonic_clusters(placements: list[dict], orb: float, harmonic_number: int) -> list[dict]:
+    if len(placements) < 2:
+        return []
+
+    candidates: list[tuple[frozenset[str], float, list[dict]]] = []
+    seen_keys: set[frozenset[str]] = set()
+    for seed in placements:
+        nearby = [
+            placement
+            for placement in placements
+            if circular_distance(seed["longitude"], placement["longitude"]) <= orb
+        ]
+        if len(nearby) < 2:
+            continue
+
+        center = circular_mean([placement["longitude"] for placement in nearby])
+        refined = [
+            placement
+            for placement in placements
+            if circular_distance(center, placement["longitude"]) <= orb
+        ]
+        if len(refined) < 2:
+            continue
+
+        key = frozenset(placement["point"] for placement in refined)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        candidates.append((key, center, refined))
+
+    selected: list[tuple[frozenset[str], float, list[dict]]] = []
+    for key, center, members in sorted(candidates, key=lambda item: (-len(item[2]), item[1])):
+        if any(key < selected_key for selected_key, _selected_center, _selected_members in selected):
+            continue
+        selected.append((key, center, members))
+
+    clusters = []
+    for index, (_key, center, members) in enumerate(sorted(selected, key=lambda item: item[1]), start=1):
+        center_position = zodiac_position(center)
+        clusters.append(
+            {
+                "cluster_id": f"H{harmonic_number}_cluster_{index}",
+                "strength": "major" if len(members) >= 3 else "minor",
+                "center_longitude": center_position["absolute_degree"],
+                "position": center_position["formatted"],
+                "orb": orb,
+                "members": [
+                    {
+                        "point": member["point"],
+                        "longitude": member["longitude"],
+                        "position": member["position"],
+                        "orb_from_cluster_center": round(circular_distance(center, member["longitude"]), 6),
+                    }
+                    for member in sorted(members, key=lambda item: circular_distance(center, item["longitude"]))
+                ],
+            }
+        )
+    return clusters
+
+
+def cluster_source_relationships(cluster: dict, natal_reference: dict[str, dict]) -> list[dict]:
+    relationships = []
+    members = cluster.get("members", [])
+    for first_index, first in enumerate(members):
+        for second in members[first_index + 1:]:
+            first_natal = natal_reference.get(first["point"])
+            second_natal = natal_reference.get(second["point"])
+            if not first_natal or not second_natal:
+                continue
+            separation = circular_distance(first_natal["longitude"], second_natal["longitude"])
+            relationships.append(
+                {
+                    "point_a": first["point"],
+                    "point_b": second["point"],
+                    "natal_longitude_a": first_natal["longitude"],
+                    "natal_longitude_b": second_natal["longitude"],
+                    "natal_position_a": first_natal["position"],
+                    "natal_position_b": second_natal["position"],
+                    "natal_angular_separation": round(separation, 6),
+                }
+            )
+    return relationships
+
+
+def harmonic_birth_data_summary(
+    request: HarmonicChartsRequest,
+    place: PlaceResolution,
+    hour: int,
+    minute: int,
+    has_exact_time: bool,
+    birth_utc: datetime,
+) -> dict:
+    return {
+        "name": request.name,
+        "birth_date": request.birth_date.isoformat(),
+        "birth_time": request.birth_time if has_exact_time else None,
+        "birth_time_used": f"{hour:02d}:{minute:02d}",
+        "birth_time_exact": has_exact_time,
+        "birth_place": request.birth_place,
+        "resolved_place": place.birthplace_resolved,
+        "latitude": place.latitude,
+        "longitude": place.longitude,
+        "timezone": place.timezone_name,
+        "birth_utc": birth_utc.isoformat().replace("+00:00", "Z"),
+    }
+
+
+def harmonic_text_summary(harmonic_charts: list[dict]) -> tuple[str, str]:
+    chart_lines = ["VERIFIED_ASTROMEG_HARMONIC_CHART_DATA"]
+    placement_chunks = ["SUCCESS | Western harmonic charts calculated"]
+    for chart in harmonic_charts:
+        placements = chart.get("placements", [])
+        chart_lines.append(f"H{chart['harmonic']}: {chart.get('theme', 'Custom harmonic')}")
+        chart_lines.extend(
+            f"{placement['point']}: {placement['position']}"
+            for placement in placements
+        )
+        placement_chunks.append(
+            f"H{chart['harmonic']} body_count={len(placements)} "
+            + "; ".join(f"{placement['point']}: {placement['position']}" for placement in placements)
+        )
+    return "\n".join(chart_lines), " | ".join(placement_chunks)
+
+
+def calculate_bulk_harmonic_chart_payload(request: HarmonicChartsRequest) -> dict:
+    warnings: list[str] = []
+    response_level, orb, harmonics = validate_harmonic_request_options(request)
+    hour, minute, has_exact_time = parse_harmonic_birth_time(request.birth_time)
+    if not has_exact_time:
+        warnings.append("Birth time was not supplied. Planetary positions were calculated for 12:00 local time.")
+
+    planet_points, angle_points = requested_harmonic_points(request, has_exact_time, warnings)
+    place = resolve_harmonic_birth_location(request)
+    birth_utc = local_datetime_to_utc(
+        request.birth_date.year,
+        request.birth_date.month,
+        request.birth_date.day,
+        hour,
+        minute,
+        place.timezone_name,
+        "birth",
+    )
+    natal_jd = datetime_to_julian_day_utc(birth_utc)
+
+    try:
+        natal_planets = calculate_planets(natal_jd).model_dump(by_alias=True)
+    except HTTPException as error:
+        raise HTTPException(
+            status_code=error.status_code,
+            detail="Natal chart calculation failed. Harmonic chart cannot be calculated without natal longitudes.",
+        ) from error
+
+    natal_values: dict[str, float] = {}
+    for display_name, source_name in planet_points:
+        natal_values[display_name] = normalize_longitude(natal_planets[source_name])
+
+    natal_cusp_values: list[float] = []
+    if has_exact_time and (angle_points or request.include_houses):
+        _natal_houses, natal_cusp_values, natal_ascendant, natal_midheaven = calculate_houses(
+            natal_jd,
+            place.latitude,
+            place.longitude,
+        )
+        if "ASC" in angle_points:
+            natal_values["ASC"] = normalize_longitude(natal_ascendant)
+        if "MC" in angle_points:
+            natal_values["MC"] = normalize_longitude(natal_midheaven)
+    elif request.include_houses:
+        warnings.append("Harmonic houses require exact birth time and location. Houses were not calculated.")
+
+    if request.include_houses and has_exact_time:
+        warnings.append("Harmonic houses are experimental. Primary harmonic interpretation should focus on planetary clusters and natal anchoring.")
+
+    natal_reference = {
+        point: {
+            "point": point,
+            "longitude": longitude,
+            "position": zodiac_position(longitude)["formatted"],
+        }
+        for point, longitude in natal_values.items()
+    }
+
+    harmonic_charts = []
+    include_natal_reference = response_level == "full" or request.include_natal_reference
+    for harmonic_number in harmonics:
+        chart_theme = get_harmonic_theme(harmonic_number)
+        placements = []
+        for point, natal_longitude in natal_values.items():
+            harmonic_value = calculate_harmonic_longitude(natal_longitude, harmonic_number)
+            if response_level == "compact":
+                placements.append(compact_harmonic_position_payload(point, harmonic_value))
+            else:
+                placements.append(
+                    standard_harmonic_position_payload(
+                        point,
+                        harmonic_value,
+                        natal_longitude=natal_longitude,
+                        include_natal_reference=include_natal_reference,
+                    )
+                )
+
+        chart_payload = {
+            "harmonic": harmonic_number,
+            **chart_theme,
+            "placements": placements,
+        }
+
+        clusters = []
+        if request.include_clusters and response_level != "compact":
+            clusters = detect_harmonic_clusters(placements, orb, harmonic_number)
+            chart_payload["clusters"] = clusters
+            if response_level == "full" and not clusters:
+                warnings.append("No major harmonic cluster found within selected orb. Interpret this harmonic lightly and return to natal chart.")
+
+        if response_level == "full":
+            chart_payload["source_relationships"] = [
+                {
+                    "cluster_id": cluster["cluster_id"],
+                    "relationships": cluster_source_relationships(cluster, natal_reference),
+                }
+                for cluster in clusters
+            ]
+
+        if request.include_houses and has_exact_time and natal_cusp_values:
+            chart_payload["harmonic_houses"] = [
+                standard_harmonic_position_payload(
+                    f"House {index}",
+                    calculate_harmonic_longitude(cusp, harmonic_number),
+                )
+                for index, cusp in enumerate(natal_cusp_values, start=1)
+            ]
+
+        harmonic_charts.append(chart_payload)
+
+    settings = {
+        "zodiac": ZODIAC,
+        "ephemeris": "Swiss Ephemeris",
+        "positions": "Geocentric",
+        "formula": "(natal_longitude * harmonic_number) % 360",
+        "cluster_orb_degrees": orb,
+        "houses_default": False,
+        "vedic": False,
+        "sidereal": False,
+    }
+
+    chart_text, placements_text = harmonic_text_summary(harmonic_charts)
+    payload = {
+        "status": "success",
+        "success": True,
+        "message": "Western harmonic charts calculated successfully",
+        "verified_harmonic_chart": True,
+        "verified_chart_data": True,
+        "chart_type": "harmonic",
+        "response_level": response_level,
+        "settings": settings,
+        "requested_harmonics": harmonics,
+        "harmonic_charts": harmonic_charts,
+        "warnings": warnings,
+        "chart_text": chart_text,
+        "placements_text": placements_text,
+        "body_count": sum(len(chart.get("placements", [])) for chart in harmonic_charts),
+    }
+
+    if response_level != "compact":
+        payload["birth_data"] = harmonic_birth_data_summary(request, place, hour, minute, has_exact_time, birth_utc)
+
+    if include_natal_reference:
+        payload["natal_reference"] = list(natal_reference.values())
+
+    return payload
+
+
+def midpoint_longitude(longitude_a: float, longitude_b: float) -> float:
+    return normalize_longitude(longitude_a + signed_longitude_delta(longitude_b, longitude_a) / 2.0)
+
+
+def geographic_midpoint(latitude_a: float, longitude_a: float, latitude_b: float, longitude_b: float) -> tuple[float, float]:
+    lat_a = math.radians(latitude_a)
+    lon_a = math.radians(longitude_a)
+    lat_b = math.radians(latitude_b)
+    lon_b = math.radians(longitude_b)
+
+    x = math.cos(lat_a) * math.cos(lon_a) + math.cos(lat_b) * math.cos(lon_b)
+    y = math.cos(lat_a) * math.sin(lon_a) + math.cos(lat_b) * math.sin(lon_b)
+    z = math.sin(lat_a) + math.sin(lat_b)
+    hypotenuse = math.hypot(x, y)
+
+    if hypotenuse < 1e-12:
+        return ((latitude_a + latitude_b) / 2.0, normalize_longitude((longitude_a + longitude_b) / 2.0))
+
+    midpoint_latitude = math.degrees(math.atan2(z, hypotenuse))
+    midpoint_longitude_value = math.degrees(math.atan2(y, x))
+    return midpoint_latitude, midpoint_longitude_value
+
+
+def resolve_relationship_birth_location(person: RelationshipBirthInput) -> PlaceResolution:
+    if person.birth_place and person.birth_place.strip():
+        return resolve_birthplace(person.birth_place)
+
+    if person.latitude is None or person.longitude is None or not person.timezone:
+        raise HTTPException(
+            status_code=400,
+            detail="Each person needs birth_place or latitude, longitude, and timezone.",
+        )
+
+    try:
+        ZoneInfo(person.timezone)
+    except ZoneInfoNotFoundError as error:
+        raise HTTPException(status_code=400, detail="Unable to determine timezone for one birth location.") from error
+
+    return PlaceResolution(
+        query=person.name or "coordinates",
+        birthplace_resolved="Coordinates supplied by request",
+        latitude=float(person.latitude),
+        longitude=float(person.longitude),
+        timezone_name=person.timezone,
+    )
+
+
+def relationship_birth_context(person: RelationshipBirthInput, label: str) -> dict:
+    hour, minute, has_exact_time = parse_harmonic_birth_time(person.birth_time)
+    if not has_exact_time:
+        raise HTTPException(status_code=400, detail=f"{label} birth_time is required for relationship charts.")
+
+    place = resolve_relationship_birth_location(person)
+    birth_utc = local_datetime_to_utc(
+        person.birth_date.year,
+        person.birth_date.month,
+        person.birth_date.day,
+        hour,
+        minute,
+        place.timezone_name,
+        label,
+    )
+    jd = datetime_to_julian_day_utc(birth_utc)
+    planets = calculate_planets(jd).model_dump(by_alias=True)
+    houses, cusp_values, ascendant, midheaven = calculate_houses(jd, place.latitude, place.longitude)
+    return {
+        "name": person.name,
+        "birth_date": person.birth_date.isoformat(),
+        "birth_time": f"{hour:02d}:{minute:02d}",
+        "birth_place": person.birth_place,
+        "place": place,
+        "birth_utc": birth_utc,
+        "jd": jd,
+        "planets": planets,
+        "houses": houses,
+        "cusp_values": cusp_values,
+        "ascendant": normalize_longitude(ascendant),
+        "midheaven": normalize_longitude(midheaven),
+    }
+
+
+def relationship_person_summary(context: dict) -> dict:
+    place: PlaceResolution = context["place"]
+    return {
+        "name": context["name"],
+        "birth_date": context["birth_date"],
+        "birth_time": context["birth_time"],
+        "birth_place": context["birth_place"],
+        "resolved_place": place.birthplace_resolved,
+        "latitude": place.latitude,
+        "longitude": place.longitude,
+        "timezone": place.timezone_name,
+        "birth_utc": context["birth_utc"].isoformat().replace("+00:00", "Z"),
+    }
+
+
+def requested_relationship_points(request: RelationshipChartRequest, warnings: list[str]) -> tuple[list[tuple[str, str]], list[str]]:
+    planet_points: list[tuple[str, str]] = []
+    angle_points: list[str] = []
+    seen: set[str] = set()
+
+    for point in request.points:
+        key = normalize_point_name(point)
+        if key in PLANET_POINT_ALIASES:
+            display_name, source_name = PLANET_POINT_ALIASES[key]
+            if display_name not in seen:
+                planet_points.append((display_name, source_name))
+                seen.add(display_name)
+            continue
+        if key in ANGLE_POINT_ALIASES:
+            angle_name = ANGLE_POINT_ALIASES[key]
+            if angle_name not in seen:
+                angle_points.append(angle_name)
+                seen.add(angle_name)
+            continue
+        if str(point).strip():
+            warnings.append(f"Unsupported point excluded: {point}.")
+
+    if not planet_points and not angle_points:
+        raise HTTPException(status_code=400, detail="No supported relationship chart points were requested.")
+    return planet_points, angle_points
+
+
+def house_cusps_from_longitudes(cusp_values: list[float]) -> list[HouseCuspResponse]:
+    return [
+        HouseCuspResponse(
+            house=index,
+            sign=zodiac_sign(cusp),
+            degree=zodiac_degree(cusp),
+            absolute_degree=normalize_longitude(cusp),
+        )
+        for index, cusp in enumerate(cusp_values, start=1)
+    ]
+
+
+def relationship_placement(body: str, longitude: float, cusp_values: list[float] | None = None) -> dict:
+    house = house_for_degree(longitude, cusp_values) if cusp_values else None
+    return named_position_payload(body, longitude, house=house)
+
+
+def relationship_text_summary(chart_type: str, placements: list[dict]) -> tuple[str, str]:
+    prefix = "VERIFIED_ASTROMEG_COMPOSITE_CHART_DATA" if chart_type == "composite" else "VERIFIED_ASTROMEG_DAVISON_CHART_DATA"
+    formatted = "\n".join(f"{placement['body']}: {placement['formatted']}" for placement in placements)
+    placements_text = "; ".join(f"{placement['body']}: {placement['formatted']}" for placement in placements)
+    return f"{prefix}\n{formatted}", f"SUCCESS | {chart_type.title()} chart calculated | body_count={len(placements)} | {placements_text}"
+
+
+def relationship_settings(method: str) -> dict:
+    return {
+        "zodiac": ZODIAC,
+        "houses": HOUSE_SYSTEM,
+        "ephemeris": "Swiss Ephemeris",
+        "positions": "Geocentric",
+        "method": method,
+    }
+
+
+def calculate_composite_chart_payload(request: RelationshipChartRequest) -> dict:
+    warnings: list[str] = []
+    person_a = relationship_birth_context(request.person_a, "person_a")
+    person_b = relationship_birth_context(request.person_b, "person_b")
+    planet_points, angle_points = requested_relationship_points(request, warnings)
+
+    composite_values: dict[str, float] = {}
+    for display_name, source_name in planet_points:
+        composite_values[display_name] = midpoint_longitude(
+            person_a["planets"][source_name],
+            person_b["planets"][source_name],
+        )
+    if "ASC" in angle_points:
+        composite_values["ASC"] = midpoint_longitude(person_a["ascendant"], person_b["ascendant"])
+    if "MC" in angle_points:
+        composite_values["MC"] = midpoint_longitude(person_a["midheaven"], person_b["midheaven"])
+
+    composite_cusp_values: list[float] = []
+    if request.include_houses:
+        composite_cusp_values = [
+            midpoint_longitude(cusp_a, cusp_b)
+            for cusp_a, cusp_b in zip(person_a["cusp_values"], person_b["cusp_values"])
+        ]
+        warnings.append("Composite houses are midpoint-derived reference cusps. Do not treat them as an independently timed event chart.")
+
+    placements = [
+        relationship_placement(body, longitude, composite_cusp_values if request.include_houses else None)
+        for body, longitude in composite_values.items()
+    ]
+    houses = [house_payload(cusp) for cusp in house_cusps_from_longitudes(composite_cusp_values)] if composite_cusp_values else []
+    angles = {
+        "ascendant": angle_payload("Ascendant", composite_values["ASC"]) if "ASC" in composite_values else None,
+        "midheaven": angle_payload("Midheaven", composite_values["MC"]) if "MC" in composite_values else None,
+    }
+    chart_text, placements_text = relationship_text_summary("composite", placements)
+
+    return {
+        "status": "success",
+        "success": True,
+        "message": "Composite chart calculated successfully",
+        "verified_relationship_chart": True,
+        "verified_composite_chart": True,
+        "chart_type": "composite",
+        "method": "Midpoint Composite: each natal ecliptic longitude is combined by circular midpoint.",
+        "settings": relationship_settings("Circular midpoint of two natal charts"),
+        "birth_data": {
+            "person_a": relationship_person_summary(person_a),
+            "person_b": relationship_person_summary(person_b),
+        },
+        "calculation_data": {
+            "midpoint_method": "shortest-arc circular midpoint",
+            "houses_included": bool(composite_cusp_values),
+        },
+        "placements": placements,
+        "angles": angles,
+        "houses": houses,
+        "warnings": warnings,
+        "chart": chart_text,
+        "chart_text": chart_text,
+        "result": placements_text,
+        "placements_text": placements_text,
+        "body_count": len(placements),
+    }
+
+
+def calculate_davison_chart_payload(request: RelationshipChartRequest) -> dict:
+    warnings: list[str] = []
+    person_a = relationship_birth_context(request.person_a, "person_a")
+    person_b = relationship_birth_context(request.person_b, "person_b")
+    planet_points, angle_points = requested_relationship_points(request, warnings)
+    place_a: PlaceResolution = person_a["place"]
+    place_b: PlaceResolution = person_b["place"]
+
+    midpoint_utc = person_a["birth_utc"] + ((person_b["birth_utc"] - person_a["birth_utc"]) / 2)
+    midpoint_latitude, midpoint_longitude_value = geographic_midpoint(
+        place_a.latitude,
+        place_a.longitude,
+        place_b.latitude,
+        place_b.longitude,
+    )
+    midpoint_jd = datetime_to_julian_day_utc(midpoint_utc)
+    davison_planets = calculate_planets(midpoint_jd).model_dump(by_alias=True)
+    houses, cusp_values, ascendant, midheaven = calculate_houses(
+        midpoint_jd,
+        midpoint_latitude,
+        midpoint_longitude_value,
+    )
+
+    davison_values: dict[str, float] = {}
+    for display_name, source_name in planet_points:
+        davison_values[display_name] = normalize_longitude(davison_planets[source_name])
+    if "ASC" in angle_points:
+        davison_values["ASC"] = normalize_longitude(ascendant)
+    if "MC" in angle_points:
+        davison_values["MC"] = normalize_longitude(midheaven)
+
+    placements = [
+        relationship_placement(body, longitude, cusp_values if request.include_houses else None)
+        for body, longitude in davison_values.items()
+    ]
+    houses_payload = [house_payload(house) for house in houses] if request.include_houses else []
+    angles = {
+        "ascendant": angle_payload("Ascendant", ascendant) if "ASC" in davison_values else None,
+        "midheaven": angle_payload("Midheaven", midheaven) if "MC" in davison_values else None,
+    }
+    chart_text, placements_text = relationship_text_summary("davison", placements)
+
+    return {
+        "status": "success",
+        "success": True,
+        "message": "Davison chart calculated successfully",
+        "verified_relationship_chart": True,
+        "verified_davison_chart": True,
+        "chart_type": "davison",
+        "method": "Davison Relationship Chart: chart cast for midpoint of the two UTC birth times and geographic birth locations.",
+        "settings": relationship_settings("Midpoint in time and space, then Swiss Ephemeris event chart"),
+        "birth_data": {
+            "person_a": relationship_person_summary(person_a),
+            "person_b": relationship_person_summary(person_b),
+        },
+        "calculation_data": {
+            "midpoint_utc": midpoint_utc.isoformat().replace("+00:00", "Z"),
+            "midpoint_latitude": midpoint_latitude,
+            "midpoint_longitude": midpoint_longitude_value,
+            "timezone": "UTC",
+            "julian_day": midpoint_jd,
+            "houses_included": request.include_houses,
+        },
+        "placements": placements,
+        "angles": angles,
+        "houses": houses_payload,
+        "warnings": warnings,
+        "chart": chart_text,
+        "chart_text": chart_text,
+        "result": placements_text,
+        "placements_text": placements_text,
+        "body_count": len(placements),
     }
 
 
@@ -2558,6 +3802,95 @@ def custom_openapi():
             },
         },
     }
+    harmonic_operation = {
+        "summary": "Calculate Western harmonic chart",
+        "description": (
+            "Calculate a Western tropical harmonic chart using Swiss Ephemeris natal longitudes multiplied "
+            "by harmonic_number and normalized to 0-360. This is not a Vedic varga, not sidereal, and does not fabricate houses."
+        ),
+        "operationId": "calculate_harmonic_chart",
+        "requestBody": {
+            "required": True,
+            "content": {"application/json": {"schema": HARMONIC_CHART_REQUEST_SCHEMA}},
+        },
+        "responses": {
+            "200": {
+                "description": "Western harmonic chart result or readable application-level error.",
+                "content": {"application/json": {"schema": HARMONIC_CHART_RESPONSE_SCHEMA}},
+            },
+            "default": {
+                "description": "Harmonic chart request could not be calculated.",
+                "content": {"application/json": {"schema": ERROR_SCHEMA}},
+            },
+        },
+    }
+    bulk_harmonic_operation = {
+        "summary": "Calculate Western harmonic charts",
+        "description": (
+            "Calculate one or more Western tropical harmonic charts from natal Swiss Ephemeris longitudes. "
+            "Harmonic positions are derived with (natal_longitude * harmonic_number) % 360. "
+            "No Vedic, sidereal, or long-form interpretation is returned."
+        ),
+        "operationId": "calculate_harmonic_charts",
+        "requestBody": {
+            "required": True,
+            "content": {"application/json": {"schema": BULK_HARMONIC_CHART_REQUEST_SCHEMA}},
+        },
+        "responses": {
+            "200": {
+                "description": "Western harmonic chart results or readable application-level error.",
+                "content": {"application/json": {"schema": BULK_HARMONIC_CHART_RESPONSE_SCHEMA}},
+            },
+            "default": {
+                "description": "Harmonic chart request could not be calculated.",
+                "content": {"application/json": {"schema": ERROR_SCHEMA}},
+            },
+        },
+    }
+    composite_operation = {
+        "summary": "Calculate Composite relationship chart",
+        "description": (
+            "Calculate a midpoint Composite chart from two natal charts. Each requested natal longitude "
+            "is combined by shortest-arc circular midpoint. Tropical zodiac and Swiss Ephemeris natal positions only."
+        ),
+        "operationId": "calculate_composite_chart",
+        "requestBody": {
+            "required": True,
+            "content": {"application/json": {"schema": RELATIONSHIP_CHART_REQUEST_SCHEMA}},
+        },
+        "responses": {
+            "200": {
+                "description": "Composite chart result or readable application-level error.",
+                "content": {"application/json": {"schema": RELATIONSHIP_CHART_RESPONSE_SCHEMA}},
+            },
+            "default": {
+                "description": "Composite chart request could not be calculated.",
+                "content": {"application/json": {"schema": ERROR_SCHEMA}},
+            },
+        },
+    }
+    davison_operation = {
+        "summary": "Calculate Davison relationship chart",
+        "description": (
+            "Calculate a Davison Relationship Chart by finding the midpoint UTC time and geographic midpoint "
+            "between two births, then casting a Tropical Placidus chart with Swiss Ephemeris."
+        ),
+        "operationId": "calculate_davison_chart",
+        "requestBody": {
+            "required": True,
+            "content": {"application/json": {"schema": RELATIONSHIP_CHART_REQUEST_SCHEMA}},
+        },
+        "responses": {
+            "200": {
+                "description": "Davison chart result or readable application-level error.",
+                "content": {"application/json": {"schema": RELATIONSHIP_CHART_RESPONSE_SCHEMA}},
+            },
+            "default": {
+                "description": "Davison chart request could not be calculated.",
+                "content": {"application/json": {"schema": ERROR_SCHEMA}},
+            },
+        },
+    }
 
     schema["openapi"] = "3.1.0"
     schema["paths"] = {
@@ -2568,6 +3901,10 @@ def custom_openapi():
         "/calculate_progressed_chart_solar_arc_angles": {"post": progressed_solar_arc_angles_operation},
         "/calculate_progressed_solar_longitude_chart": {"post": progressed_solar_longitude_operation},
         "/calculate_solar_arc_directions": {"post": solar_arc_directions_operation},
+        "/calculate_harmonic_chart": {"post": harmonic_operation},
+        "/api/charts/harmonic": {"post": bulk_harmonic_operation},
+        "/api/charts/composite": {"post": composite_operation},
+        "/api/charts/davison": {"post": davison_operation},
     }
     schema.pop("components", None)
     schema["components"] = {
@@ -2679,18 +4016,29 @@ def validate_access_code(payload: AccessCodeValidationRequest, request: Request)
             status_code=401,
         )
 
+    cached_result = get_cached_access_response(payload.access_code)
+    if cached_result is not None:
+        return json_response(cached_result)
+
     try:
         external_result = validate_access_code_with_external_service(payload.access_code)
         if external_result is not None:
             logger.info("access code external validation status=%s valid=%s", external_result.get("status"), external_result.get("valid"))
+            cache_access_response(payload.access_code, external_result)
             return json_response(external_result)
 
         rows = fetch_access_sheet_rows()
         result = validate_access_code_from_rows(payload.access_code, rows)
         logger.info("access code validation status=%s valid=%s", result.get("status"), result.get("valid"))
+        cache_access_response(payload.access_code, result)
         return json_response(result)
     except Exception as error:
         logger.exception("access code validation unavailable error=%s", error)
+        cached_result = get_cached_access_response(payload.access_code)
+        if cached_result is not None:
+            cached_result["message"] = "Access confirmed from recent validation cache."
+            cached_result["validation_source"] = "render_cache"
+            return json_response(cached_result)
         return json_response(
             access_response(False, "ERROR", "Access validation is temporarily unavailable. Please try again.")
         )
@@ -3194,6 +4542,105 @@ def calculate_solar_arc_directions(request: ProgressedChartRequest):
         payload.get("solar_arc_degrees"),
         payload.get("body_count"),
     )
+    return json_response(payload)
+
+
+@app.post(
+    "/calculate_harmonic_chart",
+    operation_id="calculate_harmonic_chart",
+    description="Calculate a Western tropical harmonic chart from natal Swiss Ephemeris longitudes.",
+    responses={
+        200: {
+            "description": "Western harmonic chart result.",
+            "content": {"application/json": {"schema": {"type": "object", "additionalProperties": True}}},
+        },
+    },
+)
+def calculate_harmonic_chart(request: HarmonicChartRequest):
+    logger.info(
+        "harmonic chart start birthplace=%s harmonic=H%s",
+        request.birthplace,
+        request.harmonic_number,
+    )
+    payload = calculate_harmonic_chart_payload(request)
+    logger.info(
+        "harmonic chart complete harmonic=H%s body_count=%s conjunctions=%s",
+        request.harmonic_number,
+        payload.get("body_count"),
+        len(payload.get("conjunctions", [])),
+    )
+    return json_response(payload)
+
+
+@app.post(
+    "/api/charts/harmonic",
+    operation_id="calculate_harmonic_charts",
+    description="Calculate one or more Western tropical harmonic charts from natal Swiss Ephemeris longitudes.",
+    responses={
+        200: {
+            "description": "Western harmonic charts result.",
+            "content": {"application/json": {"schema": {"type": "object", "additionalProperties": True}}},
+        },
+    },
+)
+def calculate_harmonic_charts(request: HarmonicChartsRequest):
+    logger.info(
+        "bulk harmonic charts start birth_place=%s harmonics=%s response_level=%s",
+        request.birth_place,
+        request.harmonics,
+        request.response_level,
+    )
+    payload = calculate_bulk_harmonic_chart_payload(request)
+    logger.info(
+        "bulk harmonic charts complete harmonics=%s body_count=%s warnings=%s",
+        payload.get("requested_harmonics"),
+        payload.get("body_count"),
+        len(payload.get("warnings", [])),
+    )
+    return json_response(payload)
+
+
+@app.post(
+    "/api/charts/composite",
+    operation_id="calculate_composite_chart",
+    description="Calculate a midpoint Composite relationship chart from two natal charts.",
+    responses={
+        200: {
+            "description": "Composite relationship chart result.",
+            "content": {"application/json": {"schema": {"type": "object", "additionalProperties": True}}},
+        },
+    },
+)
+def calculate_composite_chart(request: RelationshipChartRequest):
+    logger.info(
+        "composite chart start person_a=%s person_b=%s",
+        request.person_a.birth_place or request.person_a.name,
+        request.person_b.birth_place or request.person_b.name,
+    )
+    payload = calculate_composite_chart_payload(request)
+    logger.info("composite chart complete body_count=%s", payload.get("body_count"))
+    return json_response(payload)
+
+
+@app.post(
+    "/api/charts/davison",
+    operation_id="calculate_davison_chart",
+    description="Calculate a Davison relationship chart from midpoint time and midpoint location.",
+    responses={
+        200: {
+            "description": "Davison relationship chart result.",
+            "content": {"application/json": {"schema": {"type": "object", "additionalProperties": True}}},
+        },
+    },
+)
+def calculate_davison_chart(request: RelationshipChartRequest):
+    logger.info(
+        "davison chart start person_a=%s person_b=%s",
+        request.person_a.birth_place or request.person_a.name,
+        request.person_b.birth_place or request.person_b.name,
+    )
+    payload = calculate_davison_chart_payload(request)
+    logger.info("davison chart complete body_count=%s", payload.get("body_count"))
     return json_response(payload)
 
 
