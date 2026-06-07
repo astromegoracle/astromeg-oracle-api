@@ -36,6 +36,18 @@ LOOKUP_ATTEMPTS = 2
 RETRY_DELAY_SECONDS = 0.25
 HOUSE_SYSTEM = "Placidus"
 ZODIAC = "Tropical"
+HOUSE_SYSTEM_CODES = {
+    "placidus": ("Placidus", b"P"),
+    "regiomontanus": ("Regiomontanus", b"R"),
+}
+MOON_ASPECT_ORB_DEGREES = 8.0
+MOON_ASPECTS = {
+    "Conjunction": 0.0,
+    "Sextile": 60.0,
+    "Square": 90.0,
+    "Trine": 120.0,
+    "Opposition": 180.0,
+}
 OPEN_METEO_API_KEY = os.environ.get("OPEN_METEO_API_KEY", "").strip()
 OPEN_METEO_GEOCODE_URL = (
     "https://customer-geocoding-api.open-meteo.com/v1/search"
@@ -1205,6 +1217,28 @@ def normalize_longitude(absolute_degree: float) -> float:
     return absolute_degree % 360.0
 
 
+def resolve_house_system(house_system: str | None = None, chart_type: str | None = None) -> tuple[str, bytes]:
+    if house_system and str(house_system).strip():
+        requested = " ".join(str(house_system).strip().casefold().split())
+    elif chart_type and str(chart_type).strip().casefold() == "horary":
+        requested = "regiomontanus"
+    else:
+        requested = HOUSE_SYSTEM.casefold()
+
+    aliases = {
+        "p": "placidus",
+        "placidus": "placidus",
+        "r": "regiomontanus",
+        "regiomontanus": "regiomontanus",
+        "regio": "regiomontanus",
+    }
+    key = aliases.get(requested)
+    if key not in HOUSE_SYSTEM_CODES:
+        supported = ", ".join(name for name, _code in HOUSE_SYSTEM_CODES.values())
+        raise HTTPException(status_code=400, detail=f"Unsupported house_system: {house_system}. Supported values: {supported}.")
+    return HOUSE_SYSTEM_CODES[key]
+
+
 def calculate_solar_arc_longitude(natal_sun_longitude: float, progressed_sun_longitude: float) -> float:
     return normalize_longitude(progressed_sun_longitude - natal_sun_longitude)
 
@@ -2023,11 +2057,17 @@ def calculate_planets(jd: float) -> PlanetsResponse:
     return PlanetsResponse(**results)
 
 
-def calculate_houses(jd: float, latitude: float, longitude: float) -> tuple[list[HouseCuspResponse], list[float], float, float]:
+def calculate_houses(
+    jd: float,
+    latitude: float,
+    longitude: float,
+    house_system: str | None = None,
+) -> tuple[list[HouseCuspResponse], list[float], float, float]:
+    house_system_name, house_system_code = resolve_house_system(house_system)
     try:
-        cusps, ascmc = swe.houses(jd, latitude, longitude, b'P')
+        cusps, ascmc = swe.houses(jd, latitude, longitude, house_system_code)
     except Exception as error:
-        raise HTTPException(status_code=500, detail=f"Could not calculate Placidus houses: {error}") from error
+        raise HTTPException(status_code=500, detail=f"Could not calculate {house_system_name} houses: {error}") from error
 
     cusp_values = list(cusps)
     house_cusps = [
@@ -2040,6 +2080,35 @@ def calculate_houses(jd: float, latitude: float, longitude: float) -> tuple[list
         for index, cusp in enumerate(cusp_values, start=1)
     ]
     return house_cusps, cusp_values, ascmc[0], ascmc[1]
+
+
+def calculate_moon_aspects(planet_values: dict[str, float], orb_limit: float = MOON_ASPECT_ORB_DEGREES) -> list[AspectResponse]:
+    moon_longitude = planet_values.get("Moon")
+    if moon_longitude is None:
+        return []
+
+    aspects = []
+    for body, longitude in planet_values.items():
+        if body == "Moon":
+            continue
+        separation = angular_separation(moon_longitude, longitude)
+        closest_name = None
+        closest_orb = None
+        for aspect_name, aspect_angle in MOON_ASPECTS.items():
+            orb = abs(separation - aspect_angle)
+            if closest_orb is None or orb < closest_orb:
+                closest_name = aspect_name
+                closest_orb = orb
+        if closest_name is not None and closest_orb is not None and closest_orb <= orb_limit:
+            aspects.append(
+                AspectResponse(
+                    body_a="Moon",
+                    body_b=body,
+                    aspect=closest_name,
+                    orb=round(closest_orb, 4),
+                )
+            )
+    return aspects
 
 
 def placement_summary(placements: list[PlacementResponse]) -> str:
@@ -2071,9 +2140,11 @@ def build_chart_response_from_jd(
     timezone_name: str,
     resolved_place: str,
     birthplace: str,
+    house_system: str | None = None,
 ) -> ChartResponse:
+    house_system_name, _house_system_code = resolve_house_system(house_system)
     planets = calculate_planets(jd)
-    houses, cusp_values, ascendant, midheaven = calculate_houses(jd, latitude, longitude)
+    houses, cusp_values, ascendant, midheaven = calculate_houses(jd, latitude, longitude, house_system_name)
     planet_values = planets.model_dump(by_alias=True)
     placements = [
         PlacementResponse(
@@ -2098,10 +2169,11 @@ def build_chart_response_from_jd(
         timezone=timezone_name,
         timezone_offset=timezone_offset,
         zodiac=ZODIAC,
-        house_system=HOUSE_SYSTEM,
+        house_system=house_system_name,
     )
     chart_text = chart_summary(placements)
     placements_text = placement_summary(placements)
+    moon_aspects = calculate_moon_aspects(planet_values)
     return ChartResponse(
         status="success",
         success=True,
@@ -2117,7 +2189,7 @@ def build_chart_response_from_jd(
         houses=houses,
         ascendant=ascendant,
         midheaven=midheaven,
-        aspects=[],
+        aspects=moon_aspects,
     )
 
 
@@ -2133,6 +2205,7 @@ def build_chart_response(
     timezone_name: str,
     resolved_place: str,
     birthplace: str,
+    house_system: str | None = None,
 ) -> ChartResponse:
     jd = calculate_julian_day(year, month, day, hour, minute, timezone_offset)
     return build_chart_response_from_jd(
@@ -2148,6 +2221,7 @@ def build_chart_response(
         timezone_name=timezone_name,
         resolved_place=resolved_place,
         birthplace=birthplace,
+        house_system=house_system,
     )
 
 
@@ -2200,7 +2274,15 @@ def action_chart_payload(chart: ChartResponse) -> dict:
         "ascendant_position": zodiac_position(chart.ascendant),
         "midheaven": round(chart.midheaven % 360, 2),
         "midheaven_position": zodiac_position(chart.midheaven),
-        "aspects": [],
+        "aspects": [
+            {
+                "body_a": aspect.body_a,
+                "body_b": aspect.body_b,
+                "aspect": aspect.aspect,
+                "orb": aspect.orb,
+            }
+            for aspect in chart.aspects
+        ],
     }
 
 
@@ -3606,9 +3688,10 @@ def custom_openapi():
     chart_operation["operationId"] = "calculate_chart"
     chart_operation["summary"] = "Calculate natal chart"
     chart_operation["description"] = (
-        "Calculate a tropical natal chart with Placidus houses using Swiss Ephemeris only. "
+        "Calculate a tropical chart with Placidus or Regiomontanus houses using Swiss Ephemeris only. "
         "Birthplace is geocoded internally and timezone is resolved automatically. "
-        "Always send birthplace exactly as provided by the user; do not call this operation without it."
+        "Always send birthplace exactly as provided by the user; do not call this operation without it. "
+        "For horary charts, send chart_type=horary or house_system=Regiomontanus."
     )
     chart_operation["parameters"] = [
         {
@@ -3652,6 +3735,20 @@ def custom_openapi():
             "required": True,
             "schema": {"type": "string", "example": "Quezon City, Philippines"},
             "description": "Required birthplace to resolve, for example Quezon City, Philippines. Never omit this parameter.",
+        },
+        {
+            "name": "house_system",
+            "in": "query",
+            "required": False,
+            "schema": {"type": "string", "example": "Regiomontanus"},
+            "description": "Optional house system. Supported values: Placidus, Regiomontanus.",
+        },
+        {
+            "name": "chart_type",
+            "in": "query",
+            "required": False,
+            "schema": {"type": "string", "example": "horary"},
+            "description": "Optional chart type. If set to horary and house_system is omitted, Regiomontanus is used.",
         },
     ]
     chart_operation["responses"] = {
@@ -4124,8 +4221,9 @@ def ephe_status():
     "/chart",
     operation_id="calculate_chart",
     description=(
-        "Calculate a tropical natal chart with Placidus houses using Swiss Ephemeris. "
-        "Required query parameters are year, month, day, hour, minute, and birthplace."
+        "Calculate a tropical chart with selectable houses using Swiss Ephemeris. "
+        "Required query parameters are year, month, day, hour, minute, and birthplace. "
+        "Horary requests default to Regiomontanus houses."
     ),
     responses={
         200: {
@@ -4147,6 +4245,14 @@ def calculate_chart(
     birthplace: Annotated[
         Optional[str],
         Query(description="Birthplace to geocode, for example: Quezon City, Philippines."),
+    ] = None,
+    house_system: Annotated[
+        Optional[str],
+        Query(description="House system to use. Supported: Placidus, Regiomontanus."),
+    ] = None,
+    chart_type: Annotated[
+        Optional[str],
+        Query(description="Optional chart type. If set to horary and house_system is omitted, Regiomontanus is used."),
     ] = None,
 ):
     if not birthplace:
@@ -4192,6 +4298,7 @@ def calculate_chart(
         )
 
     timezone_offset = timezone_offset_hours(year, month, day, hour, minute, resolved.timezone_name)
+    house_system_name, _house_system_code = resolve_house_system(house_system, chart_type)
 
     chart = build_chart_response(
         year=year,
@@ -4205,8 +4312,12 @@ def calculate_chart(
         timezone_name=resolved.timezone_name,
         resolved_place=resolved.birthplace_resolved,
         birthplace=birthplace,
+        house_system=house_system_name,
     )
-    return json_response(action_chart_payload(chart))
+    payload = action_chart_payload(chart)
+    payload["chart_type"] = chart_type or "natal"
+    payload["house_system"] = house_system_name
+    return json_response(payload)
 
 
 @app.post(
