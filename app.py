@@ -3688,10 +3688,9 @@ def custom_openapi():
     chart_operation["operationId"] = "calculate_chart"
     chart_operation["summary"] = "Calculate natal chart"
     chart_operation["description"] = (
-        "Calculate a tropical chart with Placidus or Regiomontanus houses using Swiss Ephemeris only. "
-        "Birthplace is geocoded internally and timezone is resolved automatically. "
-        "Always send birthplace exactly as provided by the user; do not call this operation without it. "
-        "For horary charts, send chart_type=horary or house_system=Regiomontanus."
+        "Calculate a tropical Swiss Ephemeris chart. Requires year, month, day, hour, minute, "
+        "and birthplace. Uses Placidus by default; send house_system=Regiomontanus or "
+        "chart_type=horary for horary."
     )
     chart_operation["parameters"] = [
         {
