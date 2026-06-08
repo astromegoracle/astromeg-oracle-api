@@ -34,6 +34,9 @@ USER_AGENT = "astromeg-oracle-api/1.0"
 GEOCODE_TIMEOUT_SECONDS = 3
 LOOKUP_ATTEMPTS = 2
 RETRY_DELAY_SECONDS = 0.25
+ACCESS_VALIDATION_TIMEOUT_SECONDS = float(os.environ.get("ORACLE_ACCESS_VALIDATION_TIMEOUT_SECONDS", "6"))
+ACCESS_VALIDATION_ATTEMPTS = int(os.environ.get("ORACLE_ACCESS_VALIDATION_ATTEMPTS", "3"))
+ACCESS_VALIDATION_RETRY_DELAY_SECONDS = float(os.environ.get("ORACLE_ACCESS_VALIDATION_RETRY_DELAY_SECONDS", "0.5"))
 HOUSE_SYSTEM = "Placidus"
 ZODIAC = "Tropical"
 HOUSE_SYSTEM_CODES = {
@@ -1864,10 +1867,32 @@ def validate_access_code_with_external_service(access_code: str) -> dict | None:
         },
         method="GET",
     )
-    logger.info("external access validation start")
-    with urlopen(request, timeout=GEOCODE_TIMEOUT_SECONDS) as response:
-        result = json.load(response)
-    logger.info("external access validation response status=%s valid=%s", result.get("status"), result.get("valid"))
+    result = None
+    last_error = None
+    for attempt in range(ACCESS_VALIDATION_ATTEMPTS):
+        try:
+            logger.info(
+                "external access validation start attempt=%s timeout_seconds=%s",
+                attempt + 1,
+                ACCESS_VALIDATION_TIMEOUT_SECONDS,
+            )
+            with urlopen(request, timeout=ACCESS_VALIDATION_TIMEOUT_SECONDS) as response:
+                result = json.load(response)
+            logger.info(
+                "external access validation response attempt=%s status=%s valid=%s",
+                attempt + 1,
+                result.get("status") if isinstance(result, dict) else None,
+                result.get("valid") if isinstance(result, dict) else None,
+            )
+            break
+        except (OSError, URLError, TimeoutError, json.JSONDecodeError) as error:
+            last_error = error
+            logger.warning("external access validation failed attempt=%s error=%s", attempt + 1, error)
+            if attempt < ACCESS_VALIDATION_ATTEMPTS - 1:
+                time.sleep(ACCESS_VALIDATION_RETRY_DELAY_SECONDS)
+
+    if result is None:
+        raise RuntimeError(f"External access validation unavailable: {last_error}")
 
     if not isinstance(result, dict):
         raise RuntimeError("External access validation returned malformed JSON.")
