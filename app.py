@@ -4142,7 +4142,12 @@ def validate_access_code(payload: AccessCodeValidationRequest, request: Request)
         return json_response(cached_result)
 
     try:
-        external_result = validate_access_code_with_external_service(payload.access_code)
+        try:
+            external_result = validate_access_code_with_external_service(payload.access_code)
+        except Exception as error:
+            logger.warning("external access validation unavailable; trying row source error=%s", error)
+            external_result = None
+
         if external_result is not None:
             logger.info("access code external validation status=%s valid=%s", external_result.get("status"), external_result.get("valid"))
             cache_access_response(payload.access_code, external_result)

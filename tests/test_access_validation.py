@@ -317,6 +317,27 @@ class AccessCodeValidationTests(unittest.TestCase):
         self.assertEqual(second_payload["status"], "ACTIVE")
         self.assertEqual(second_payload["cache"], "hit")
 
+    def test_external_access_validator_failure_falls_back_to_rows(self):
+        os.environ["ORACLE_BACKEND_API_KEY"] = "secret"
+        os.environ["ORACLE_ACCESS_VALIDATION_URL"] = "https://script.google.com/macros/s/example/exec"
+        os.environ["ORACLE_ACCESS_VALIDATION_SECRET"] = "bridge-secret"
+
+        def timeout_urlopen(request, timeout):
+            raise TimeoutError("simulated timeout")
+
+        app.urlopen = timeout_urlopen
+        app.fetch_access_sheet_rows = self.rows
+        response = app.validate_access_code(
+            app.AccessCodeValidationRequest(access_code="FULL-CODE"),
+            FakeRequest({"Authorization": "Bearer secret"}),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = json.loads(response.body)
+        self.assertTrue(payload["valid"])
+        self.assertEqual(payload["status"], "ACTIVE")
+        self.assertEqual(payload["expiration_date"], "2099-05-31")
+
 
 if __name__ == "__main__":
     unittest.main()
