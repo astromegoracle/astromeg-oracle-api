@@ -34,9 +34,9 @@ USER_AGENT = "astromeg-oracle-api/1.0"
 GEOCODE_TIMEOUT_SECONDS = 3
 LOOKUP_ATTEMPTS = 2
 RETRY_DELAY_SECONDS = 0.25
-ACCESS_VALIDATION_TIMEOUT_SECONDS = float(os.environ.get("ORACLE_ACCESS_VALIDATION_TIMEOUT_SECONDS", "6"))
-ACCESS_VALIDATION_ATTEMPTS = int(os.environ.get("ORACLE_ACCESS_VALIDATION_ATTEMPTS", "3"))
-ACCESS_VALIDATION_RETRY_DELAY_SECONDS = float(os.environ.get("ORACLE_ACCESS_VALIDATION_RETRY_DELAY_SECONDS", "0.5"))
+ACCESS_VALIDATION_TIMEOUT_SECONDS = float(os.environ.get("ORACLE_ACCESS_VALIDATION_TIMEOUT_SECONDS", "2.5"))
+ACCESS_VALIDATION_ATTEMPTS = int(os.environ.get("ORACLE_ACCESS_VALIDATION_ATTEMPTS", "1"))
+ACCESS_VALIDATION_RETRY_DELAY_SECONDS = float(os.environ.get("ORACLE_ACCESS_VALIDATION_RETRY_DELAY_SECONDS", "0.25"))
 HOUSE_SYSTEM = "Placidus"
 ZODIAC = "Tropical"
 HOUSE_SYSTEM_CODES = {
@@ -1120,7 +1120,9 @@ HARMONIC_THEMES = {
 }
 
 ACCESS_CACHE_TTL_SECONDS = int(os.environ.get("ORACLE_ACCESS_CACHE_TTL_SECONDS", "21600"))
+ACCESS_CACHE_FILE = BASE_DIR / ".access_cache.json"
 ACCESS_CACHE: dict[str, tuple[float, dict]] = {}
+ACCESS_CACHE_LOADED = False
 
 TEST_BIRTHPLACES = (
     "Quezon City, Philippines",
@@ -1655,34 +1657,130 @@ def access_response(
     return response
 
 
-def get_cached_access_response(access_code: str) -> dict | None:
+def load_persistent_access_cache() -> None:
+    global ACCESS_CACHE_LOADED
+    if ACCESS_CACHE_LOADED:
+        return
+
+    ACCESS_CACHE_LOADED = True
+    if not ACCESS_CACHE_FILE.is_file():
+        return
+
+    try:
+        raw_cache = json.loads(ACCESS_CACHE_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        logger.warning("access cache load failed path=%s error=%s", ACCESS_CACHE_FILE, error)
+        return
+
+    if not isinstance(raw_cache, dict):
+        logger.warning("access cache ignored path=%s reason=not_object", ACCESS_CACHE_FILE)
+        return
+
+    loaded = 0
+    for cache_key, entry in raw_cache.items():
+        if not isinstance(entry, dict):
+            continue
+        response = entry.get("response")
+        if not isinstance(response, dict):
+            continue
+        try:
+            expires_at = float(entry.get("expires_at", 0))
+        except (TypeError, ValueError):
+            continue
+        ACCESS_CACHE[str(cache_key)] = (expires_at, response)
+        loaded += 1
+
+    logger.info("access cache loaded path=%s entries=%s", ACCESS_CACHE_FILE, loaded)
+
+
+def save_persistent_access_cache() -> None:
+    try:
+        serializable_cache = {
+            cache_key: {"expires_at": expires_at, "response": response}
+            for cache_key, (expires_at, response) in sorted(ACCESS_CACHE.items())
+        }
+        temp_path = ACCESS_CACHE_FILE.with_name(f"{ACCESS_CACHE_FILE.name}.tmp")
+        temp_path.write_text(json.dumps(serializable_cache, indent=2, sort_keys=True), encoding="utf-8")
+        os.chmod(temp_path, 0o600)
+        os.replace(temp_path, ACCESS_CACHE_FILE)
+        logger.info("access cache saved path=%s entries=%s", ACCESS_CACHE_FILE, len(serializable_cache))
+    except OSError as error:
+        logger.warning("access cache save failed path=%s error=%s", ACCESS_CACHE_FILE, error)
+
+
+def cached_access_response_still_valid(response: dict) -> bool:
+    if not response.get("valid"):
+        return False
+
+    status = str(response.get("status") or "").strip().upper()
+    if status not in VALID_ACCESS_STATUSES:
+        return False
+
+    expiration = parse_expiration_date(str(response.get("expiration_date") or ""))
+    if expiration is None:
+        return False
+
+    today = datetime.now(ZoneInfo(MANILA_TIMEZONE)).date()
+    return expiration >= today
+
+
+def get_cached_access_response(access_code: str, allow_stale: bool = False) -> dict | None:
+    load_persistent_access_cache()
     cache_key = normalize_access_code(access_code)
     cached = ACCESS_CACHE.get(cache_key)
     if cached is None:
         return None
 
     expires_at, response = cached
+    cache_state = "hit"
     if time.time() >= expires_at:
-        ACCESS_CACHE.pop(cache_key, None)
-        return None
+        if allow_stale and cached_access_response_still_valid(response):
+            cache_state = "stale"
+        elif cached_access_response_still_valid(response):
+            return None
+        else:
+            ACCESS_CACHE.pop(cache_key, None)
+            save_persistent_access_cache()
+            return None
+
+    if cache_state == "stale":
+        logger.info("access code stale cache used status=%s valid=%s", response.get("status"), response.get("valid"))
+    else:
+        logger.info("access code cache hit status=%s valid=%s", response.get("status"), response.get("valid"))
+
+    if cache_state == "stale":
+        expires_at = time.time() + ACCESS_CACHE_TTL_SECONDS
+        ACCESS_CACHE[cache_key] = (expires_at, dict(response))
+        save_persistent_access_cache()
 
     cached_response = dict(response)
-    cached_response["cache"] = "hit"
+    cached_response["cache"] = cache_state
     cached_response["message"] = cached_response.get("message") or "Access confirmed."
-    logger.info("access code cache hit status=%s valid=%s", cached_response.get("status"), cached_response.get("valid"))
     return cached_response
 
 
+def clear_cached_access_response(access_code: str) -> None:
+    load_persistent_access_cache()
+    cache_key = normalize_access_code(access_code)
+    if cache_key in ACCESS_CACHE:
+        ACCESS_CACHE.pop(cache_key, None)
+        save_persistent_access_cache()
+
+
 def cache_access_response(access_code: str, response: dict) -> None:
+    load_persistent_access_cache()
     if not response.get("valid"):
+        clear_cached_access_response(access_code)
         return
 
     status = str(response.get("status") or "").strip().upper()
     if status not in VALID_ACCESS_STATUSES:
+        clear_cached_access_response(access_code)
         return
 
     ACCESS_CACHE[normalize_access_code(access_code)] = (time.time() + ACCESS_CACHE_TTL_SECONDS, dict(response))
     logger.info("access code cache saved status=%s ttl_seconds=%s", status, ACCESS_CACHE_TTL_SECONDS)
+    save_persistent_access_cache()
 
 
 def validate_access_code_from_rows(
@@ -4160,7 +4258,7 @@ def validate_access_code(payload: AccessCodeValidationRequest, request: Request)
         return json_response(result)
     except Exception as error:
         logger.exception("access code validation unavailable error=%s", error)
-        cached_result = get_cached_access_response(payload.access_code)
+        cached_result = get_cached_access_response(payload.access_code, allow_stale=True)
         if cached_result is not None:
             cached_result["message"] = "Access confirmed from recent validation cache."
             cached_result["validation_source"] = "render_cache"

@@ -1,0 +1,5 @@
+__pycache__/
+*.py[cod]
+.DS_Store
+.access_cache.json
+.access_cache.json.tmp

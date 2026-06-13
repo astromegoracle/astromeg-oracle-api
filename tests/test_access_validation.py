@@ -3,6 +3,7 @@ import os
 import tempfile
 import unittest
 from datetime import datetime
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from zoneinfo import ZoneInfo
 
@@ -39,12 +40,20 @@ class AccessCodeValidationTests(unittest.TestCase):
         self.original_validation_url = os.environ.get("ORACLE_ACCESS_VALIDATION_URL")
         self.original_validation_secret = os.environ.get("ORACLE_ACCESS_VALIDATION_SECRET")
         self.original_urlopen = app.urlopen
+        self.original_access_cache_file = app.ACCESS_CACHE_FILE
+        self.original_access_cache_loaded = app.ACCESS_CACHE_LOADED
+        self.cache_dir = tempfile.TemporaryDirectory()
+        app.ACCESS_CACHE_FILE = Path(self.cache_dir.name) / "access-cache.json"
+        app.ACCESS_CACHE_LOADED = False
         app.ACCESS_CACHE.clear()
 
     def tearDown(self):
         app.fetch_access_sheet_rows = self.original_fetch
         app.urlopen = self.original_urlopen
+        app.ACCESS_CACHE_FILE = self.original_access_cache_file
+        app.ACCESS_CACHE_LOADED = self.original_access_cache_loaded
         app.ACCESS_CACHE.clear()
+        self.cache_dir.cleanup()
         if self.original_api_key is None:
             os.environ.pop("ORACLE_BACKEND_API_KEY", None)
         else:
@@ -316,6 +325,89 @@ class AccessCodeValidationTests(unittest.TestCase):
         self.assertTrue(second_payload["valid"])
         self.assertEqual(second_payload["status"], "ACTIVE")
         self.assertEqual(second_payload["cache"], "hit")
+
+    def test_recent_valid_access_code_loads_from_persistent_cache(self):
+        os.environ["ORACLE_BACKEND_API_KEY"] = "secret"
+        os.environ["ORACLE_ACCESS_VALIDATION_URL"] = "https://script.google.com/macros/s/example/exec"
+        os.environ["ORACLE_ACCESS_VALIDATION_SECRET"] = "bridge-secret"
+
+        def fake_urlopen(request, timeout):
+            return FakeUrlResponse(
+                {
+                    "valid": True,
+                    "status": "ACTIVE",
+                    "message": "Access confirmed.",
+                    "expiration_date": "2099-12-31",
+                    "permission_level": "VIP",
+                    "reading_type": "FOUNDER",
+                }
+            )
+
+        app.urlopen = fake_urlopen
+        first_response = app.validate_access_code(
+            app.AccessCodeValidationRequest(access_code="SCRIPT-CODE"),
+            FakeRequest({"Authorization": "Bearer secret"}),
+        )
+        self.assertEqual(first_response.status_code, 200)
+
+        app.ACCESS_CACHE.clear()
+        app.ACCESS_CACHE_LOADED = False
+
+        def timeout_urlopen(request, timeout):
+            raise TimeoutError("simulated timeout")
+
+        def unavailable():
+            raise RuntimeError("sheet unavailable")
+
+        app.urlopen = timeout_urlopen
+        app.fetch_access_sheet_rows = unavailable
+        second_response = app.validate_access_code(
+            app.AccessCodeValidationRequest(access_code="SCRIPT-CODE"),
+            FakeRequest({"Authorization": "Bearer secret"}),
+        )
+
+        payload = json.loads(second_response.body)
+        self.assertTrue(payload["valid"])
+        self.assertEqual(payload["status"], "ACTIVE")
+        self.assertEqual(payload["cache"], "hit")
+
+    def test_expired_cache_can_be_used_when_external_validation_is_unavailable(self):
+        os.environ["ORACLE_BACKEND_API_KEY"] = "secret"
+        os.environ["ORACLE_ACCESS_VALIDATION_URL"] = "https://script.google.com/macros/s/example/exec"
+        os.environ["ORACLE_ACCESS_VALIDATION_SECRET"] = "bridge-secret"
+        app.ACCESS_CACHE[app.normalize_access_code("SCRIPT-CODE")] = (
+            0,
+            {
+                "valid": True,
+                "status": "ACTIVE",
+                "message": "Access confirmed.",
+                "expiration_date": "2099-12-31",
+                "permission_level": "VIP",
+                "reading_type": "FOUNDER",
+            },
+        )
+        app.save_persistent_access_cache()
+        app.ACCESS_CACHE.clear()
+        app.ACCESS_CACHE_LOADED = False
+
+        def timeout_urlopen(request, timeout):
+            raise TimeoutError("simulated timeout")
+
+        def unavailable():
+            raise RuntimeError("sheet unavailable")
+
+        app.urlopen = timeout_urlopen
+        app.fetch_access_sheet_rows = unavailable
+        response = app.validate_access_code(
+            app.AccessCodeValidationRequest(access_code="SCRIPT-CODE"),
+            FakeRequest({"Authorization": "Bearer secret"}),
+        )
+
+        payload = json.loads(response.body)
+        self.assertTrue(payload["valid"])
+        self.assertEqual(payload["status"], "ACTIVE")
+        self.assertEqual(payload["cache"], "stale")
+        self.assertEqual(payload["validation_source"], "render_cache")
 
     def test_external_access_validator_failure_falls_back_to_rows(self):
         os.environ["ORACLE_BACKEND_API_KEY"] = "secret"
