@@ -63,6 +63,18 @@ SOLAR_RETURN_SOLVE_TOLERANCE_ARCSECONDS = 0.001
 SOLAR_RETURN_SEARCH_STEP_DAYS = 0.25
 SOLAR_RETURN_MAX_ITERATIONS = 80
 TROPICAL_YEAR_DAYS = 365.242189
+TRANSIT_ROOT_TOLERANCE_ARCSECONDS = 0.1
+TRANSIT_MAX_ITERATIONS = 80
+TRANSIT_MAX_EVENTS = 500
+TRANSIT_FIXED_STAR_FALLBACKS = {
+    "REGULUS": {
+        "longitude": 150.0,
+        "note": (
+            "Regulus fallback tropical longitude near 0 Virgo was used because "
+            "Swiss Ephemeris fixed-star catalog file sefstars.txt is not installed."
+        ),
+    }
+}
 MANILA_TIMEZONE = "Asia/Manila"
 FREE_ACCESS_DEADLINE = datetime(2026, 5, 18, 0, 0, tzinfo=ZoneInfo(MANILA_TIMEZONE))
 VALID_ACCESS_STATUSES = {"ACTIVE", "PAID"}
@@ -294,6 +306,25 @@ class RelationshipChartRequest(BaseModel):
     include_houses: bool = True
 
 
+class FixedStarTransitTarget(BaseModel):
+    name: str
+    label: Optional[str] = None
+    orb_arcminutes: float = Field(default=5.0, ge=0.0, le=120.0)
+
+
+class TransitTimelineRequest(BaseModel):
+    planet: str = "Jupiter"
+    start_date: date
+    end_date: date
+    sign: Optional[str] = None
+    target_degrees: list[float] = Field(default_factory=list)
+    fixed_stars: list[FixedStarTransitTarget] = Field(default_factory=list)
+    timezone: str = "UTC"
+    include_sign_ingress: bool = True
+    include_retrograde_stations: bool = True
+    step_days: float = Field(default=1.0, ge=0.1, le=10.0)
+
+
 class AccessCodeValidationRequest(BaseModel):
     access_code: str
 
@@ -517,6 +548,120 @@ SOLAR_RETURN_RESPONSE_SCHEMA = {
         "result": {"type": "string"},
         "placements_text": {"type": "string"},
         "body_count": {"type": "integer"},
+    },
+}
+TRANSIT_TIMELINE_REQUEST_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["planet", "start_date", "end_date"],
+    "properties": {
+        "planet": {
+            "type": "string",
+            "default": "Jupiter",
+            "example": "Jupiter",
+            "description": "Transiting planet or supported point name from Swiss Ephemeris.",
+        },
+        "start_date": {"type": "string", "format": "date", "example": "2026-06-01"},
+        "end_date": {"type": "string", "format": "date", "example": "2027-12-31"},
+        "sign": {
+            "type": ["string", "null"],
+            "example": "Leo",
+            "description": "Optional tropical zodiac sign for sign-degree target searches.",
+        },
+        "target_degrees": {
+            "type": "array",
+            "items": {"type": "number", "minimum": 0, "maximum": 29.999999},
+            "default": [],
+            "example": [0, 29],
+            "description": "Degrees inside the requested sign. If omitted with sign provided, every whole degree 0-29 is searched.",
+        },
+        "fixed_stars": {
+            "type": "array",
+            "default": [],
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["name"],
+                "properties": {
+                    "name": {"type": "string", "example": "Regulus"},
+                    "label": {"type": ["string", "null"], "example": "Regulus"},
+                    "orb_arcminutes": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 120,
+                        "default": 5,
+                        "description": "Informational orb to include in the response; exact conjunction time is still calculated.",
+                    },
+                },
+            },
+        },
+        "timezone": {
+            "type": "string",
+            "default": "UTC",
+            "example": "Asia/Manila",
+            "description": "IANA timezone used for local event timestamps and date-window interpretation.",
+        },
+        "include_sign_ingress": {"type": "boolean", "default": True},
+        "include_retrograde_stations": {"type": "boolean", "default": True},
+        "step_days": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 10,
+            "default": 1,
+            "description": "Scan interval in days. 1 day is recommended for Jupiter and other slow transits.",
+        },
+    },
+    "examples": [
+        {
+            "planet": "Jupiter",
+            "start_date": "2026-06-01",
+            "end_date": "2027-12-31",
+            "sign": "Leo",
+            "target_degrees": [0, 29],
+            "fixed_stars": [{"name": "Regulus", "orb_arcminutes": 10}],
+            "timezone": "Asia/Manila",
+            "include_sign_ingress": True,
+            "include_retrograde_stations": True,
+            "step_days": 1,
+        }
+    ],
+}
+TRANSIT_TIMELINE_RESPONSE_SCHEMA = {
+    "type": "object",
+    "additionalProperties": True,
+    "required": ["status", "success", "message", "verified_transit_timeline", "events"],
+    "properties": {
+        "status": {"type": "string"},
+        "success": {"type": "boolean"},
+        "message": {"type": "string"},
+        "verified_transit_timeline": {"type": "boolean"},
+        "engine": {"type": "string", "example": "Swiss Ephemeris"},
+        "zodiac": {"type": "string", "example": "Tropical"},
+        "planet": {"type": "string"},
+        "start_date": {"type": "string"},
+        "end_date": {"type": "string"},
+        "timezone": {"type": "string"},
+        "events": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": True,
+                "properties": {
+                    "event_type": {"type": "string"},
+                    "label": {"type": "string"},
+                    "exact_utc": {"type": "string"},
+                    "exact_local": {"type": "string"},
+                    "julian_day": {"type": "number"},
+                    "longitude": {"type": "number"},
+                    "position": {"type": "object", "additionalProperties": True},
+                    "speed_degrees_per_day": {"type": "number"},
+                    "is_retrograde": {"type": "boolean"},
+                },
+            },
+        },
+        "warnings": {"type": "array", "items": {"type": "string"}},
+        "chart_text": {"type": "string"},
+        "result": {"type": "string"},
     },
 }
 PROGRESSED_CHART_REQUEST_SCHEMA = {
@@ -1435,6 +1580,472 @@ def datetime_to_julian_day_utc(value: datetime) -> float:
         + (utc_value.microsecond / 3_600_000_000.0)
     )
     return swe.julday(utc_value.year, utc_value.month, utc_value.day, hour)
+
+
+def resolve_transit_planet(planet_name: str) -> tuple[str, int]:
+    normalized = " ".join(planet_name.replace("_", " ").split()).upper()
+    if not normalized:
+        raise HTTPException(status_code=400, detail="planet is required.")
+
+    if normalized in PLANET_POINT_ALIASES:
+        _point_label, canonical_name = PLANET_POINT_ALIASES[normalized]
+        if canonical_name in PLANETS:
+            return canonical_name, PLANETS[canonical_name]
+
+    for canonical_name, planet_id in PLANETS.items():
+        if canonical_name.upper() == normalized:
+            return canonical_name, planet_id
+
+    supported = ", ".join(sorted(PLANETS))
+    raise HTTPException(
+        status_code=400,
+        detail=f"Unsupported transit planet '{planet_name}'. Supported: {supported}.",
+    )
+
+
+def resolve_transit_sign(sign_name: str) -> tuple[str, int]:
+    normalized = sign_name.strip().lower()
+    for index, sign in enumerate(SIGNS):
+        if sign.lower() == normalized:
+            return sign, index
+    supported = ", ".join(SIGNS)
+    raise HTTPException(status_code=400, detail=f"Unsupported sign '{sign_name}'. Supported: {supported}.")
+
+
+def transit_date_window_utc(start_date: date, end_date: date, timezone_name: str) -> tuple[datetime, datetime, ZoneInfo]:
+    if end_date < start_date:
+        raise HTTPException(status_code=400, detail="end_date must be on or after start_date.")
+    try:
+        zone = ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError as error:
+        raise HTTPException(status_code=400, detail=f"Unsupported timezone: {timezone_name}") from error
+
+    start_local = datetime.combine(start_date, datetime.min.time(), tzinfo=zone)
+    end_exclusive_local = datetime.combine(end_date + timedelta(days=1), datetime.min.time(), tzinfo=zone)
+    return start_local.astimezone(timezone.utc), end_exclusive_local.astimezone(timezone.utc), zone
+
+
+def planet_longitude_speed_at_jd(jd: float, planet_id: int, planet_name: str) -> tuple[float, float]:
+    try:
+        position, _flags = swe.calc_ut(jd, planet_id)
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=f"Could not calculate {planet_name} transit longitude: {error}") from error
+    return float(position[0] % 360.0), float(position[3])
+
+
+def fixed_star_longitude_function(star_name: str, sample_jd: float):
+    normalized = " ".join(star_name.replace("_", " ").split()).upper()
+    if not normalized:
+        raise HTTPException(status_code=400, detail="fixed star name is required.")
+
+    try:
+        swe.fixstar_ut(star_name, sample_jd)
+    except Exception as error:
+        fallback = TRANSIT_FIXED_STAR_FALLBACKS.get(normalized)
+        if fallback is None:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Fixed star '{star_name}' could not be calculated from Swiss Ephemeris "
+                    f"and no fallback is configured: {error}"
+                ),
+            ) from error
+
+        fallback_longitude = float(fallback["longitude"] % 360.0)
+
+        def fallback_longitude_at_jd(_jd: float) -> float:
+            return fallback_longitude
+
+        return star_name.strip().title(), fallback_longitude_at_jd, fallback["note"]
+
+    def star_longitude_at_jd(jd: float) -> float:
+        try:
+            star_data = swe.fixstar_ut(star_name, jd)
+        except Exception as error:
+            raise HTTPException(status_code=500, detail=f"Could not calculate fixed star '{star_name}': {error}") from error
+        return float(star_data[0][0] % 360.0)
+
+    return star_name.strip().title(), star_longitude_at_jd, None
+
+
+def find_transit_crossing_jd(lower_jd: float, upper_jd: float, value_at_jd) -> float | None:
+    low_value = value_at_jd(lower_jd)
+    high_value = value_at_jd(upper_jd)
+    tolerance_degrees = TRANSIT_ROOT_TOLERANCE_ARCSECONDS / 3600.0
+
+    if abs(low_value) <= tolerance_degrees:
+        return lower_jd
+    if abs(high_value) <= tolerance_degrees:
+        return upper_jd
+    if low_value * high_value > 0:
+        return None
+
+    low_jd = lower_jd
+    high_jd = upper_jd
+    for _iteration in range(TRANSIT_MAX_ITERATIONS):
+        mid_jd = (low_jd + high_jd) / 2.0
+        mid_value = value_at_jd(mid_jd)
+        if abs(mid_value) <= tolerance_degrees or abs(high_jd - low_jd) <= 1.0 / 86400.0:
+            return mid_jd
+        if low_value * mid_value <= 0:
+            high_jd = mid_jd
+            high_value = mid_value
+        else:
+            low_jd = mid_jd
+            low_value = mid_value
+
+    return (low_jd + high_jd) / 2.0
+
+
+def append_unique_transit_event(events: list[dict], event: dict) -> None:
+    for existing in events:
+        same_type = existing.get("event_type") == event.get("event_type")
+        same_target = existing.get("target_key") == event.get("target_key")
+        same_time = abs(float(existing.get("julian_day", 0.0)) - float(event.get("julian_day", 0.0))) < 0.01
+        if same_type and same_target and same_time:
+            return
+    events.append(event)
+
+
+def transit_event_payload(
+    *,
+    event_type: str,
+    label: str,
+    planet_name: str,
+    planet_id: int,
+    jd: float,
+    zone: ZoneInfo,
+    target_key: str,
+    extra: dict | None = None,
+) -> dict:
+    longitude, speed = planet_longitude_speed_at_jd(jd, planet_id, planet_name)
+    exact_utc = julian_day_to_utc_datetime(jd)
+    payload = {
+        "event_type": event_type,
+        "label": label,
+        "planet": planet_name,
+        "julian_day": round(jd, 8),
+        "exact_utc": exact_utc.isoformat().replace("+00:00", "Z"),
+        "exact_local": exact_utc.astimezone(zone).isoformat(),
+        "longitude": round(longitude, 8),
+        "position": zodiac_position(longitude),
+        "speed_degrees_per_day": round(speed, 8),
+        "is_retrograde": speed < 0.0,
+        "target_key": target_key,
+    }
+    if extra:
+        payload.update(extra)
+    return payload
+
+
+def transit_degree_targets(request: TransitTimelineRequest) -> list[dict]:
+    if request.sign is None:
+        if request.target_degrees:
+            raise HTTPException(status_code=400, detail="target_degrees require a sign.")
+        return []
+
+    sign_name, sign_index = resolve_transit_sign(request.sign)
+    if request.target_degrees:
+        degrees = [float(degree) for degree in request.target_degrees]
+    else:
+        degrees = [float(degree) for degree in range(30)]
+
+    if request.include_sign_ingress and not any(abs(degree) < 1e-9 for degree in degrees):
+        degrees.insert(0, 0.0)
+
+    targets: list[dict] = []
+    seen: set[float] = set()
+    for degree in degrees:
+        if degree < 0.0 or degree >= 30.0:
+            raise HTTPException(status_code=400, detail="target_degrees must be between 0 and less than 30.")
+        rounded_degree = round(degree, 6)
+        if rounded_degree in seen:
+            continue
+        seen.add(rounded_degree)
+        target_longitude = normalize_longitude(sign_index * 30.0 + degree)
+        targets.append(
+            {
+                "sign": sign_name,
+                "degree": degree,
+                "longitude": target_longitude,
+                "position": zodiac_position(target_longitude),
+            }
+        )
+    return targets
+
+
+def scan_transit_longitude_crossings(
+    *,
+    events: list[dict],
+    start_jd: float,
+    end_jd: float,
+    step_days: float,
+    planet_name: str,
+    planet_id: int,
+    zone: ZoneInfo,
+    target: dict,
+) -> None:
+    target_longitude = float(target["longitude"])
+
+    def delta_at_jd(jd: float) -> float:
+        longitude, _speed = planet_longitude_speed_at_jd(jd, planet_id, planet_name)
+        return signed_longitude_delta(longitude, target_longitude)
+
+    previous_jd = start_jd
+    previous_delta = delta_at_jd(previous_jd)
+    jd = min(start_jd + step_days, end_jd)
+    while jd <= end_jd + 1e-9:
+        current_delta = delta_at_jd(jd)
+        crosses = previous_delta == 0.0 or current_delta == 0.0 or previous_delta * current_delta < 0.0
+        if crosses:
+            exact_jd = find_transit_crossing_jd(previous_jd, jd, delta_at_jd)
+            if exact_jd is not None:
+                position = target["position"]
+                degree = float(target["degree"])
+                if degree == 0.0:
+                    label = f"{planet_name} enters {target['sign']} at {position['formatted']}"
+                    event_type = "sign_ingress"
+                else:
+                    label = f"{planet_name} reaches {position['formatted']}"
+                    event_type = "degree_crossing"
+                append_unique_transit_event(
+                    events,
+                    transit_event_payload(
+                        event_type=event_type,
+                        label=label,
+                        planet_name=planet_name,
+                        planet_id=planet_id,
+                        jd=exact_jd,
+                        zone=zone,
+                        target_key=f"degree:{target_longitude:.6f}",
+                        extra={
+                            "target_sign": target["sign"],
+                            "target_degree": round(degree, 6),
+                            "target_longitude": round(target_longitude, 8),
+                            "target_position": position,
+                        },
+                    ),
+                )
+        previous_jd = jd
+        previous_delta = current_delta
+        if jd >= end_jd:
+            break
+        jd = min(jd + step_days, end_jd)
+
+
+def scan_transit_fixed_star_conjunctions(
+    *,
+    events: list[dict],
+    warnings: set[str],
+    start_jd: float,
+    end_jd: float,
+    step_days: float,
+    planet_name: str,
+    planet_id: int,
+    zone: ZoneInfo,
+    target: FixedStarTransitTarget,
+) -> None:
+    star_label, star_longitude_at_jd, warning = fixed_star_longitude_function(target.name, start_jd)
+    if warning:
+        warnings.add(warning)
+
+    def delta_at_jd(jd: float) -> float:
+        longitude, _speed = planet_longitude_speed_at_jd(jd, planet_id, planet_name)
+        return signed_longitude_delta(longitude, star_longitude_at_jd(jd))
+
+    previous_jd = start_jd
+    previous_delta = delta_at_jd(previous_jd)
+    jd = min(start_jd + step_days, end_jd)
+    while jd <= end_jd + 1e-9:
+        current_delta = delta_at_jd(jd)
+        crosses = previous_delta == 0.0 or current_delta == 0.0 or previous_delta * current_delta < 0.0
+        if crosses:
+            exact_jd = find_transit_crossing_jd(previous_jd, jd, delta_at_jd)
+            if exact_jd is not None:
+                star_longitude = star_longitude_at_jd(exact_jd)
+                star_position = zodiac_position(star_longitude)
+                append_unique_transit_event(
+                    events,
+                    transit_event_payload(
+                        event_type="fixed_star_conjunction",
+                        label=f"{planet_name} conjunct {target.label or star_label} at {star_position['formatted']}",
+                        planet_name=planet_name,
+                        planet_id=planet_id,
+                        jd=exact_jd,
+                        zone=zone,
+                        target_key=f"fixed-star:{star_label}:{star_longitude:.6f}",
+                        extra={
+                            "fixed_star": target.label or star_label,
+                            "fixed_star_longitude": round(star_longitude, 8),
+                            "fixed_star_position": star_position,
+                            "orb_arcminutes": target.orb_arcminutes,
+                        },
+                    ),
+                )
+        previous_jd = jd
+        previous_delta = current_delta
+        if jd >= end_jd:
+            break
+        jd = min(jd + step_days, end_jd)
+
+
+def scan_transit_stations(
+    *,
+    events: list[dict],
+    start_jd: float,
+    end_jd: float,
+    step_days: float,
+    planet_name: str,
+    planet_id: int,
+    zone: ZoneInfo,
+) -> None:
+    def speed_at_jd(jd: float) -> float:
+        _longitude, speed = planet_longitude_speed_at_jd(jd, planet_id, planet_name)
+        return speed
+
+    previous_jd = start_jd
+    previous_speed = speed_at_jd(previous_jd)
+    jd = min(start_jd + step_days, end_jd)
+    while jd <= end_jd + 1e-9:
+        current_speed = speed_at_jd(jd)
+        crosses = previous_speed == 0.0 or current_speed == 0.0 or previous_speed * current_speed < 0.0
+        if crosses:
+            exact_jd = find_transit_crossing_jd(previous_jd, jd, speed_at_jd)
+            if exact_jd is not None:
+                before_speed = speed_at_jd(max(start_jd, exact_jd - 0.05))
+                after_speed = speed_at_jd(min(end_jd, exact_jd + 0.05))
+                station_kind = "retrograde" if before_speed > after_speed else "direct"
+                append_unique_transit_event(
+                    events,
+                    transit_event_payload(
+                        event_type=f"station_{station_kind}",
+                        label=f"{planet_name} stations {station_kind}",
+                        planet_name=planet_name,
+                        planet_id=planet_id,
+                        jd=exact_jd,
+                        zone=zone,
+                        target_key=f"station:{station_kind}",
+                        extra={"station": station_kind},
+                    ),
+                )
+        previous_jd = jd
+        previous_speed = current_speed
+        if jd >= end_jd:
+            break
+        jd = min(jd + step_days, end_jd)
+
+
+def calculate_transit_timeline_payload(request: TransitTimelineRequest) -> dict:
+    planet_name, planet_id = resolve_transit_planet(request.planet)
+    start_utc, end_exclusive_utc, zone = transit_date_window_utc(request.start_date, request.end_date, request.timezone)
+    start_jd = datetime_to_julian_day_utc(start_utc)
+    end_jd = datetime_to_julian_day_utc(end_exclusive_utc)
+    warnings: set[str] = set()
+    events: list[dict] = []
+
+    degree_targets = transit_degree_targets(request)
+    if request.sign and not request.target_degrees:
+        warnings.add(
+            f"No target_degrees were provided, so every whole degree 0-29 in {resolve_transit_sign(request.sign)[0]} was scanned."
+        )
+
+    for target in degree_targets:
+        scan_transit_longitude_crossings(
+            events=events,
+            start_jd=start_jd,
+            end_jd=end_jd,
+            step_days=request.step_days,
+            planet_name=planet_name,
+            planet_id=planet_id,
+            zone=zone,
+            target=target,
+        )
+
+    for fixed_star in request.fixed_stars:
+        scan_transit_fixed_star_conjunctions(
+            events=events,
+            warnings=warnings,
+            start_jd=start_jd,
+            end_jd=end_jd,
+            step_days=request.step_days,
+            planet_name=planet_name,
+            planet_id=planet_id,
+            zone=zone,
+            target=fixed_star,
+        )
+
+    if request.include_retrograde_stations:
+        scan_transit_stations(
+            events=events,
+            start_jd=start_jd,
+            end_jd=end_jd,
+            step_days=request.step_days,
+            planet_name=planet_name,
+            planet_id=planet_id,
+            zone=zone,
+        )
+
+    events.sort(key=lambda event: event["julian_day"])
+    if len(events) > TRANSIT_MAX_EVENTS:
+        warnings.add(f"Transit event list was truncated to the first {TRANSIT_MAX_EVENTS} events.")
+        events = events[:TRANSIT_MAX_EVENTS]
+
+    chart_lines = [
+        "VERIFIED_ASTROMEG_TRANSIT_TIMELINE",
+        f"SUCCESS: Swiss Ephemeris tropical transit timeline for {planet_name}.",
+        f"Date window: {request.start_date.isoformat()} through {request.end_date.isoformat()} ({request.timezone}).",
+    ]
+    if request.sign:
+        chart_lines.append(f"Sign target: {resolve_transit_sign(request.sign)[0]}.")
+    if request.target_degrees:
+        chart_lines.append("Requested degrees: " + ", ".join(f"{float(degree):g}" for degree in request.target_degrees))
+    if request.fixed_stars:
+        chart_lines.append("Fixed-star targets: " + ", ".join(target.label or target.name for target in request.fixed_stars))
+    chart_lines.append("")
+
+    if events:
+        for event in events:
+            chart_lines.append(
+                f"{event['exact_local']} | {event['label']} | "
+                f"{event['position']['formatted']} | speed {event['speed_degrees_per_day']} deg/day"
+            )
+    else:
+        chart_lines.append("No requested exact transit events were found in this date window.")
+
+    if warnings:
+        chart_lines.append("")
+        chart_lines.append("Warnings:")
+        for warning in sorted(warnings):
+            chart_lines.append(f"- {warning}")
+
+    chart_text = "\n".join(chart_lines)
+    return {
+        "status": "success",
+        "success": True,
+        "message": "Exact transit timeline calculated successfully.",
+        "verified_transit_timeline": True,
+        "engine": "Swiss Ephemeris",
+        "zodiac": ZODIAC,
+        "planet": planet_name,
+        "start_date": request.start_date.isoformat(),
+        "end_date": request.end_date.isoformat(),
+        "timezone": request.timezone,
+        "start_utc": start_utc.isoformat().replace("+00:00", "Z"),
+        "end_utc": (end_exclusive_utc - timedelta(microseconds=1)).isoformat().replace("+00:00", "Z"),
+        "settings": {
+            "sign": resolve_transit_sign(request.sign)[0] if request.sign else None,
+            "target_degrees": [float(degree) for degree in request.target_degrees],
+            "fixed_stars": [target.model_dump() for target in request.fixed_stars],
+            "include_sign_ingress": request.include_sign_ingress,
+            "include_retrograde_stations": request.include_retrograde_stations,
+            "step_days": request.step_days,
+        },
+        "events": events,
+        "event_count": len(events),
+        "warnings": sorted(warnings),
+        "chart_text": chart_text,
+        "result": chart_text,
+    }
 
 
 def local_datetime_to_utc(
@@ -3929,6 +4540,29 @@ def custom_openapi():
             },
         },
     }
+    transit_timeline_operation = {
+        "summary": "Calculate exact transit timeline",
+        "description": (
+            "Calculate exact tropical transit dates, degrees, fixed-star conjunctions, and station dates "
+            "with Swiss Ephemeris. Use this for requests like Jupiter through Leo, exact degree hits, "
+            "Regulus conjunctions, and retrograde/direct station timing."
+        ),
+        "operationId": "calculate_transit_timeline",
+        "requestBody": {
+            "required": True,
+            "content": {"application/json": {"schema": TRANSIT_TIMELINE_REQUEST_SCHEMA}},
+        },
+        "responses": {
+            "200": {
+                "description": "Exact transit timeline result or readable application-level error.",
+                "content": {"application/json": {"schema": TRANSIT_TIMELINE_RESPONSE_SCHEMA}},
+            },
+            "default": {
+                "description": "Transit timeline request could not be calculated.",
+                "content": {"application/json": {"schema": ERROR_SCHEMA}},
+            },
+        },
+    }
     progressed_operation = {
         "summary": "Calculate secondary progressed chart",
         "description": (
@@ -4116,6 +4750,7 @@ def custom_openapi():
         "/validate-access-code": {"post": validate_access_operation},
         "/chart": {"get": chart_operation},
         "/calculate_solar_return": {"post": solar_operation},
+        "/calculate_transit_timeline": {"post": transit_timeline_operation},
         "/calculate_progressed_chart": {"post": progressed_operation},
         "/calculate_progressed_chart_solar_arc_angles": {"post": progressed_solar_arc_angles_operation},
         "/calculate_progressed_solar_longitude_chart": {"post": progressed_solar_longitude_operation},
@@ -4526,6 +5161,35 @@ def calculate_solar_return(request: SolarReturnRequest):
         "solar return complete verified=%s delta_arcseconds=%s",
         payload.get("verified_solar_return"),
         payload.get("longitude_delta_arcseconds"),
+    )
+    return json_response(payload)
+
+
+@app.post(
+    "/calculate_transit_timeline",
+    operation_id="calculate_transit_timeline",
+    description=(
+        "Calculate exact tropical transit dates, degree crossings, fixed-star conjunctions, "
+        "and retrograde/direct stations with Swiss Ephemeris."
+    ),
+    responses={
+        200: {"description": "Exact transit timeline result.", "content": {"application/json": {"schema": {"type": "object", "additionalProperties": True}}}},
+    },
+)
+def calculate_transit_timeline(request: TransitTimelineRequest):
+    logger.info(
+        "transit timeline start planet=%s start=%s end=%s sign=%s",
+        request.planet,
+        request.start_date,
+        request.end_date,
+        request.sign,
+    )
+    payload = calculate_transit_timeline_payload(request)
+    logger.info(
+        "transit timeline complete planet=%s events=%s warnings=%s",
+        payload.get("planet"),
+        payload.get("event_count"),
+        len(payload.get("warnings", [])),
     )
     return json_response(payload)
 
