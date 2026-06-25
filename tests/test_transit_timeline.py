@@ -58,6 +58,72 @@ class TransitTimelineTests(unittest.TestCase):
             app.TRANSIT_TIMELINE_REQUEST_SCHEMA,
         )
 
+    def test_all_planets_timeline_is_supported(self):
+        payload = app.calculate_transit_timeline_payload(
+            app.TransitTimelineRequest(
+                planet="all",
+                start_date=date(2026, 6, 30),
+                end_date=date(2026, 7, 2),
+                sign="Leo",
+                target_degrees=[0],
+                timezone="UTC",
+                include_retrograde_stations=False,
+                step_days=1,
+            )
+        )
+
+        self.assertEqual(payload["status"], "success")
+        self.assertEqual(payload["planet"], "All Planets")
+        self.assertEqual(payload["planets"], list(app.PLANETS.keys()))
+        self.assertTrue(payload["verified_transit_timeline"])
+        self.assertTrue(any(event["planet"] == "Jupiter" for event in payload["events"]))
+        self.assertIn("all supported transit bodies", payload["chart_text"])
+
+    def test_whole_sign_natal_transit_report_includes_aspects(self):
+        payload = app.calculate_transit_timeline_payload(
+            app.TransitTimelineRequest(
+                planet="Jupiter",
+                start_date=date(2026, 6, 1),
+                end_date=date(2026, 8, 1),
+                birth_year=1972,
+                birth_month=7,
+                birth_day=31,
+                birth_hour=22,
+                birth_minute=50,
+                birthplace="Quezon City, Philippines",
+                timezone="Asia/Manila",
+                include_retrograde_stations=False,
+                include_eclipses=True,
+                step_days=1,
+            )
+        )
+
+        self.assertEqual(payload["natal_chart_house_system"], "Whole Sign")
+        self.assertEqual(payload["natal_chart"]["birth_data"]["house_system"], "Whole Sign")
+        self.assertTrue(payload["transit_to_natal_aspects"])
+        self.assertTrue(all(event.get("house_system") == "Whole Sign" for event in payload["transit_to_natal_aspects"]))
+        self.assertIn("aspect_patterns", payload)
+        self.assertIn("eclipses", payload)
+        self.assertIn("retrograde_regressions", payload)
+
+    def test_eclipses_are_included_in_date_window(self):
+        payload = app.calculate_transit_timeline_payload(
+            app.TransitTimelineRequest(
+                planet="Sun",
+                start_date=date(2026, 2, 1),
+                end_date=date(2026, 3, 31),
+                timezone="Asia/Manila",
+                include_sign_ingress=False,
+                include_retrograde_stations=False,
+                include_eclipses=True,
+                step_days=1,
+            )
+        )
+
+        eclipse_types = {event["event_type"] for event in payload["eclipses"]}
+        self.assertIn("solar_eclipse", eclipse_types)
+        self.assertIn("lunar_eclipse", eclipse_types)
+
     def test_unsupported_transit_planet_raises_readable_error(self):
         with self.assertRaises(HTTPException) as context:
             app.calculate_transit_timeline_payload(

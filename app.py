@@ -2,6 +2,7 @@ from datetime import date, datetime, timedelta, timezone
 import csv
 import hmac
 import io
+from itertools import combinations
 import json
 import logging
 import math
@@ -50,6 +51,17 @@ MOON_ASPECTS = {
     "Square": 90.0,
     "Trine": 120.0,
     "Opposition": 180.0,
+}
+TRANSIT_ASPECTS = {
+    "Conjunction": 0.0,
+    "Sextile": 60.0,
+    "Square": 90.0,
+    "Trine": 120.0,
+    "Opposition": 180.0,
+}
+ASPECT_PATTERN_ANGLES = {
+    **TRANSIT_ASPECTS,
+    "Quincunx": 150.0,
 }
 OPEN_METEO_API_KEY = os.environ.get("OPEN_METEO_API_KEY", "").strip()
 OPEN_METEO_GEOCODE_URL = (
@@ -314,14 +326,25 @@ class FixedStarTransitTarget(BaseModel):
 
 class TransitTimelineRequest(BaseModel):
     planet: str = "Jupiter"
+    planets: list[str] = Field(default_factory=list)
     start_date: date
     end_date: date
+    birth_year: Optional[int] = None
+    birth_month: Optional[int] = None
+    birth_day: Optional[int] = None
+    birth_hour: Optional[int] = None
+    birth_minute: Optional[int] = None
+    birthplace: Optional[str] = None
     sign: Optional[str] = None
     target_degrees: list[float] = Field(default_factory=list)
     fixed_stars: list[FixedStarTransitTarget] = Field(default_factory=list)
     timezone: str = "UTC"
     include_sign_ingress: bool = True
     include_retrograde_stations: bool = True
+    include_transit_to_natal_aspects: bool = True
+    include_aspect_patterns: bool = True
+    include_eclipses: bool = True
+    transit_aspect_orb: float = Field(default=2.0, ge=0.0, le=10.0)
     step_days: float = Field(default=1.0, ge=0.1, le=10.0)
 
 
@@ -553,16 +576,29 @@ SOLAR_RETURN_RESPONSE_SCHEMA = {
 TRANSIT_TIMELINE_REQUEST_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["planet", "start_date", "end_date"],
+    "required": ["start_date", "end_date"],
     "properties": {
         "planet": {
             "type": "string",
             "default": "Jupiter",
-            "example": "Jupiter",
-            "description": "Transiting planet or supported point name from Swiss Ephemeris.",
+            "example": "all",
+            "description": "Single transiting planet or supported point name. Use 'all' for every supported transit body.",
+        },
+        "planets": {
+            "type": "array",
+            "items": {"type": "string"},
+            "default": [],
+            "example": ["Sun", "Moon", "Mercury", "Venus", "Mars", "Jupiter", "Saturn", "Uranus", "Neptune", "Pluto", "North Node", "Lilith", "Chiron"],
+            "description": "Optional explicit list of transiting bodies. If provided, this overrides planet. Use this for all-planet transit reports.",
         },
         "start_date": {"type": "string", "format": "date", "example": "2026-06-01"},
         "end_date": {"type": "string", "format": "date", "example": "2027-12-31"},
+        "birth_year": {"type": ["integer", "null"], "example": 1972, "description": "Optional birth year. Provide all birth fields to calculate Whole Sign transits to the natal chart."},
+        "birth_month": {"type": ["integer", "null"], "example": 7},
+        "birth_day": {"type": ["integer", "null"], "example": 31},
+        "birth_hour": {"type": ["integer", "null"], "example": 22, "description": "Birth hour in 24-hour local time."},
+        "birth_minute": {"type": ["integer", "null"], "example": 50},
+        "birthplace": {"type": ["string", "null"], "example": "Quezon City, Philippines", "description": "Optional birthplace. When provided with full birth date/time, transit-to-natal houses are calculated with Whole Sign houses only for this transit endpoint."},
         "sign": {
             "type": ["string", "null"],
             "example": "Leo",
@@ -602,7 +638,17 @@ TRANSIT_TIMELINE_REQUEST_SCHEMA = {
             "description": "IANA timezone used for local event timestamps and date-window interpretation.",
         },
         "include_sign_ingress": {"type": "boolean", "default": True},
-        "include_retrograde_stations": {"type": "boolean", "default": True},
+        "include_retrograde_stations": {"type": "boolean", "default": True, "description": "Include retrograde/direct stations, also returned as regression/retrograde events."},
+        "include_transit_to_natal_aspects": {"type": "boolean", "default": True, "description": "When birth data is supplied, calculate exact transit-to-natal aspects in Whole Sign house context."},
+        "include_aspect_patterns": {"type": "boolean", "default": True, "description": "When birth data is supplied, return natal aspect patterns and active transit-pattern groupings."},
+        "include_eclipses": {"type": "boolean", "default": True, "description": "Include solar and lunar eclipse events in the requested date window."},
+        "transit_aspect_orb": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 10,
+            "default": 2,
+            "description": "Orb used for natal aspect-pattern detection and eclipse-to-natal aspect notes. Exact transit hits are solved to the exact crossing.",
+        },
         "step_days": {
             "type": "number",
             "minimum": 0.1,
@@ -613,15 +659,26 @@ TRANSIT_TIMELINE_REQUEST_SCHEMA = {
     },
     "examples": [
         {
-            "planet": "Jupiter",
+            "planet": "all",
+            "planets": [],
             "start_date": "2026-06-01",
             "end_date": "2027-12-31",
+            "birth_year": 1972,
+            "birth_month": 7,
+            "birth_day": 31,
+            "birth_hour": 22,
+            "birth_minute": 50,
+            "birthplace": "Quezon City, Philippines",
             "sign": "Leo",
             "target_degrees": [0, 29],
             "fixed_stars": [{"name": "Regulus", "orb_arcminutes": 10}],
             "timezone": "Asia/Manila",
             "include_sign_ingress": True,
             "include_retrograde_stations": True,
+            "include_transit_to_natal_aspects": True,
+            "include_aspect_patterns": True,
+            "include_eclipses": True,
+            "transit_aspect_orb": 2,
             "step_days": 1,
         }
     ],
@@ -638,6 +695,14 @@ TRANSIT_TIMELINE_RESPONSE_SCHEMA = {
         "engine": {"type": "string", "example": "Swiss Ephemeris"},
         "zodiac": {"type": "string", "example": "Tropical"},
         "planet": {"type": "string"},
+        "planets": {"type": "array", "items": {"type": "string"}},
+        "natal_chart_house_system": {"type": "string", "example": "Whole Sign"},
+        "natal_chart": {"type": "object", "additionalProperties": True},
+        "transit_to_natal_aspects": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+        "aspect_patterns": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+        "transit_aspect_patterns": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+        "eclipses": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+        "retrograde_regressions": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
         "start_date": {"type": "string"},
         "end_date": {"type": "string"},
         "timezone": {"type": "string"},
@@ -1559,6 +1624,14 @@ def signed_longitude_delta(longitude: float, target_longitude: float) -> float:
     return ((longitude - target_longitude + 180.0) % 360.0) - 180.0
 
 
+def transit_delta_crosses_target(previous_delta: float, current_delta: float) -> bool:
+    if previous_delta == 0.0 or current_delta == 0.0:
+        return True
+    if previous_delta * current_delta >= 0.0:
+        return False
+    return abs(current_delta - previous_delta) < 180.0
+
+
 def sun_longitude_at_jd(jd: float) -> float:
     try:
         position, _flags = swe.calc_ut(jd, swe.SUN)
@@ -1601,6 +1674,22 @@ def resolve_transit_planet(planet_name: str) -> tuple[str, int]:
         status_code=400,
         detail=f"Unsupported transit planet '{planet_name}'. Supported: {supported}.",
     )
+
+
+def resolve_transit_planets(request: TransitTimelineRequest) -> list[tuple[str, int]]:
+    requested = request.planets or [request.planet]
+    if len(requested) == 1 and requested[0].strip().lower() in {"all", "all planets", "all supported planets"}:
+        return list(PLANETS.items())
+
+    resolved: list[tuple[str, int]] = []
+    seen: set[str] = set()
+    for planet_name in requested:
+        canonical_name, planet_id = resolve_transit_planet(planet_name)
+        if canonical_name in seen:
+            continue
+        seen.add(canonical_name)
+        resolved.append((canonical_name, planet_id))
+    return resolved
 
 
 def resolve_transit_sign(sign_name: str) -> tuple[str, int]:
@@ -1699,10 +1788,11 @@ def find_transit_crossing_jd(lower_jd: float, upper_jd: float, value_at_jd) -> f
 
 def append_unique_transit_event(events: list[dict], event: dict) -> None:
     for existing in events:
+        same_planet = existing.get("planet") == event.get("planet")
         same_type = existing.get("event_type") == event.get("event_type")
         same_target = existing.get("target_key") == event.get("target_key")
         same_time = abs(float(existing.get("julian_day", 0.0)) - float(event.get("julian_day", 0.0))) < 0.01
-        if same_type and same_target and same_time:
+        if same_planet and same_type and same_target and same_time:
             return
     events.append(event)
 
@@ -1774,6 +1864,453 @@ def transit_degree_targets(request: TransitTimelineRequest) -> list[dict]:
     return targets
 
 
+def transit_birth_data_supplied(request: TransitTimelineRequest) -> bool:
+    return any(
+        value is not None and (not isinstance(value, str) or bool(value.strip()))
+        for value in (
+            request.birth_year,
+            request.birth_month,
+            request.birth_day,
+            request.birth_hour,
+            request.birth_minute,
+            request.birthplace,
+        )
+    )
+
+
+def require_complete_transit_birth_data(request: TransitTimelineRequest) -> None:
+    required = {
+        "birth_year": request.birth_year,
+        "birth_month": request.birth_month,
+        "birth_day": request.birth_day,
+        "birth_hour": request.birth_hour,
+        "birth_minute": request.birth_minute,
+        "birthplace": request.birthplace,
+    }
+    missing = [name for name, value in required.items() if value is None or (isinstance(value, str) and not value.strip())]
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Transit-to-natal Whole Sign reports require complete birth data. "
+                f"Missing: {', '.join(missing)}."
+            ),
+        )
+
+
+def whole_sign_house_for_degree(absolute_degree: float, ascendant_sign_index: int) -> int:
+    sign_index = int((normalize_longitude(absolute_degree)) // 30)
+    return ((sign_index - ascendant_sign_index) % 12) + 1
+
+
+def whole_sign_houses_from_ascendant(ascendant_longitude: float) -> tuple[list[dict], int]:
+    ascendant_sign_index = int(normalize_longitude(ascendant_longitude) // 30)
+    houses = []
+    for offset in range(12):
+        sign_index = (ascendant_sign_index + offset) % 12
+        cusp_longitude = sign_index * 30.0
+        houses.append(
+            {
+                "house": offset + 1,
+                "sign": SIGNS[sign_index],
+                "degree": 0.0,
+                "absolute_degree": cusp_longitude,
+                "position": zodiac_position(cusp_longitude),
+            }
+        )
+    return houses, ascendant_sign_index
+
+
+def build_transit_natal_context(request: TransitTimelineRequest) -> dict | None:
+    if not transit_birth_data_supplied(request):
+        return None
+
+    require_complete_transit_birth_data(request)
+    assert request.birth_year is not None
+    assert request.birth_month is not None
+    assert request.birth_day is not None
+    assert request.birth_hour is not None
+    assert request.birth_minute is not None
+    assert request.birthplace is not None
+
+    natal_place = resolve_birthplace(request.birthplace)
+    birth_utc = local_datetime_to_utc(
+        request.birth_year,
+        request.birth_month,
+        request.birth_day,
+        request.birth_hour,
+        request.birth_minute,
+        natal_place.timezone_name,
+        "birth",
+    )
+    natal_jd = datetime_to_julian_day_utc(birth_utc)
+    natal_planets = calculate_planets(natal_jd).model_dump(by_alias=True)
+    _placidus_houses, _placidus_cusp_values, ascendant, midheaven = calculate_houses(
+        natal_jd,
+        natal_place.latitude,
+        natal_place.longitude,
+    )
+    whole_sign_houses, ascendant_sign_index = whole_sign_houses_from_ascendant(ascendant)
+
+    placements = []
+    for body, longitude in natal_planets.items():
+        position = zodiac_position(longitude)
+        placements.append(
+            {
+                "body": body,
+                "sign": position["sign"],
+                "degree": round(float(position["decimal_degree"]), 4),
+                "absolute_degree": position["absolute_degree"],
+                "formatted": position["formatted"],
+                "position": position,
+                "house": whole_sign_house_for_degree(longitude, ascendant_sign_index),
+                "house_system": "Whole Sign",
+            }
+        )
+
+    return {
+        "birth_data": {
+            "year": request.birth_year,
+            "month": request.birth_month,
+            "day": request.birth_day,
+            "hour": request.birth_hour,
+            "minute": request.birth_minute,
+            "birthplace": request.birthplace,
+            "resolved_place": natal_place.birthplace_resolved,
+            "latitude": natal_place.latitude,
+            "longitude": natal_place.longitude,
+            "timezone": natal_place.timezone_name,
+            "birth_utc": birth_utc.isoformat().replace("+00:00", "Z"),
+            "zodiac": ZODIAC,
+            "house_system": "Whole Sign",
+            "house_assignment_note": "Whole Sign houses are used only for this transit-to-natal endpoint. Other endpoints remain unchanged.",
+        },
+        "placements": placements,
+        "houses": whole_sign_houses,
+        "ascendant": round(normalize_longitude(ascendant), 8),
+        "ascendant_position": zodiac_position(ascendant),
+        "midheaven": round(normalize_longitude(midheaven), 8),
+        "midheaven_position": zodiac_position(midheaven),
+        "ascendant_sign_index": ascendant_sign_index,
+    }
+
+
+def aspect_match(
+    longitude_a: float,
+    longitude_b: float,
+    aspect_angles: dict[str, float],
+    orb_limit: float,
+) -> dict | None:
+    separation = angular_separation(longitude_a, longitude_b)
+    closest_name = None
+    closest_angle = None
+    closest_orb = None
+    for aspect_name, aspect_angle in aspect_angles.items():
+        orb = abs(separation - aspect_angle)
+        if closest_orb is None or orb < closest_orb:
+            closest_name = aspect_name
+            closest_angle = aspect_angle
+            closest_orb = orb
+    if closest_name is None or closest_angle is None or closest_orb is None or closest_orb > orb_limit:
+        return None
+    return {
+        "aspect": closest_name,
+        "angle": closest_angle,
+        "orb": round(closest_orb, 6),
+        "separation": round(separation, 6),
+    }
+
+
+def natal_aspects(placements: list[dict], orb_limit: float) -> list[dict]:
+    aspects = []
+    for first, second in combinations(placements, 2):
+        match = aspect_match(first["absolute_degree"], second["absolute_degree"], ASPECT_PATTERN_ANGLES, orb_limit)
+        if not match:
+            continue
+        aspects.append(
+            {
+                "body_a": first["body"],
+                "body_b": second["body"],
+                "aspect": match["aspect"],
+                "angle": match["angle"],
+                "orb": match["orb"],
+                "body_a_position": first["position"],
+                "body_b_position": second["position"],
+                "body_a_house": first.get("house"),
+                "body_b_house": second.get("house"),
+            }
+        )
+    return aspects
+
+
+def detect_aspect_patterns(placements: list[dict], orb_limit: float) -> list[dict]:
+    aspects = natal_aspects(placements, orb_limit)
+    aspect_map: dict[frozenset[str], set[str]] = {}
+    placement_map = {placement["body"]: placement for placement in placements}
+    for aspect in aspects:
+        aspect_map.setdefault(frozenset([aspect["body_a"], aspect["body_b"]]), set()).add(aspect["aspect"])
+
+    def has_aspect(body_a: str, body_b: str, aspect_name: str) -> bool:
+        return aspect_name in aspect_map.get(frozenset([body_a, body_b]), set())
+
+    patterns = []
+    seen: set[tuple[str, tuple[str, ...]]] = set()
+    bodies = [placement["body"] for placement in placements]
+
+    for combo in combinations(bodies, 3):
+        combo_key = tuple(sorted(combo))
+        if all(has_aspect(a, b, "Trine") for a, b in combinations(combo, 2)):
+            key = ("Grand Trine", combo_key)
+            if key not in seen:
+                seen.add(key)
+                patterns.append({"pattern": "Grand Trine", "bodies": list(combo_key), "orbs_used": orb_limit})
+
+        for apex in combo:
+            base = [body for body in combo if body != apex]
+            if has_aspect(base[0], base[1], "Opposition") and all(has_aspect(apex, body, "Square") for body in base):
+                key = ("T-Square", combo_key)
+                if key not in seen:
+                    seen.add(key)
+                    patterns.append({"pattern": "T-Square", "bodies": list(combo_key), "apex": apex, "opposition": base, "orbs_used": orb_limit})
+
+        for apex in combo:
+            base = [body for body in combo if body != apex]
+            if has_aspect(base[0], base[1], "Sextile") and all(has_aspect(apex, body, "Quincunx") for body in base):
+                key = ("Yod", combo_key)
+                if key not in seen:
+                    seen.add(key)
+                    patterns.append({"pattern": "Yod", "bodies": list(combo_key), "apex": apex, "base": base, "orbs_used": orb_limit})
+
+    for combo in combinations(bodies, 4):
+        square_count = sum(1 for a, b in combinations(combo, 2) if has_aspect(a, b, "Square"))
+        opposition_count = sum(1 for a, b in combinations(combo, 2) if has_aspect(a, b, "Opposition"))
+        if square_count >= 4 and opposition_count >= 2:
+            combo_key = tuple(sorted(combo))
+            key = ("Grand Cross", combo_key)
+            if key not in seen:
+                seen.add(key)
+                patterns.append({"pattern": "Grand Cross", "bodies": list(combo_key), "orbs_used": orb_limit})
+
+    by_sign: dict[str, list[str]] = {}
+    for placement in placements:
+        by_sign.setdefault(placement["sign"], []).append(placement["body"])
+    for sign, sign_bodies in by_sign.items():
+        if len(sign_bodies) >= 3:
+            patterns.append({"pattern": "Stellium", "sign": sign, "bodies": sign_bodies, "orbs_used": "same Whole Sign sign"})
+
+    for pattern in patterns:
+        pattern["positions"] = {
+            body: placement_map[body]["position"]
+            for body in pattern.get("bodies", [])
+            if body in placement_map
+        }
+    return patterns
+
+
+def aspect_target_longitudes(natal_longitude: float, aspect_angle: float) -> list[float]:
+    if aspect_angle == 0.0:
+        return [normalize_longitude(natal_longitude)]
+    if aspect_angle == 180.0:
+        return [normalize_longitude(natal_longitude + 180.0)]
+    return [
+        normalize_longitude(natal_longitude + aspect_angle),
+        normalize_longitude(natal_longitude - aspect_angle),
+    ]
+
+
+def scan_transit_to_natal_aspects(
+    *,
+    events: list[dict],
+    start_jd: float,
+    end_jd: float,
+    step_days: float,
+    planet_name: str,
+    planet_id: int,
+    zone: ZoneInfo,
+    natal_context: dict,
+) -> None:
+    ascendant_sign_index = natal_context["ascendant_sign_index"]
+
+    for natal_placement in natal_context["placements"]:
+        natal_body = natal_placement["body"]
+        natal_longitude = float(natal_placement["absolute_degree"])
+        for aspect_name, aspect_angle in TRANSIT_ASPECTS.items():
+            for target_longitude in aspect_target_longitudes(natal_longitude, aspect_angle):
+                def delta_at_jd(jd: float) -> float:
+                    longitude, _speed = planet_longitude_speed_at_jd(jd, planet_id, planet_name)
+                    return signed_longitude_delta(longitude, target_longitude)
+
+                previous_jd = start_jd
+                previous_delta = delta_at_jd(previous_jd)
+                jd = min(start_jd + step_days, end_jd)
+                while jd <= end_jd + 1e-9:
+                    current_delta = delta_at_jd(jd)
+                    crosses = transit_delta_crosses_target(previous_delta, current_delta)
+                    if crosses:
+                        exact_jd = find_transit_crossing_jd(previous_jd, jd, delta_at_jd)
+                        if exact_jd is not None:
+                            transit_longitude, _speed = planet_longitude_speed_at_jd(exact_jd, planet_id, planet_name)
+                            append_unique_transit_event(
+                                events,
+                                transit_event_payload(
+                                    event_type="transit_to_natal_aspect",
+                                    label=f"{planet_name} {aspect_name.lower()} natal {natal_body}",
+                                    planet_name=planet_name,
+                                    planet_id=planet_id,
+                                    jd=exact_jd,
+                                    zone=zone,
+                                    target_key=f"natal-aspect:{natal_body}:{aspect_name}:{target_longitude:.6f}",
+                                    extra={
+                                        "aspect": aspect_name,
+                                        "aspect_angle": aspect_angle,
+                                        "orb": 0.0,
+                                        "natal_body": natal_body,
+                                        "natal_position": natal_placement["position"],
+                                        "natal_house_whole_sign": natal_placement.get("house"),
+                                        "target_longitude": round(target_longitude, 8),
+                                        "target_position": zodiac_position(target_longitude),
+                                        "transit_house_whole_sign": whole_sign_house_for_degree(transit_longitude, ascendant_sign_index),
+                                        "house_system": "Whole Sign",
+                                    },
+                                ),
+                            )
+                    previous_jd = jd
+                    previous_delta = current_delta
+                    if jd >= end_jd:
+                        break
+                    jd = min(jd + step_days, end_jd)
+
+
+def eclipse_type_label(flags: int, solar: bool) -> str:
+    if flags & swe.ECL_TOTAL:
+        return "Total"
+    if solar and flags & swe.ECL_ANNULAR_TOTAL:
+        return "Hybrid"
+    if solar and flags & swe.ECL_ANNULAR:
+        return "Annular"
+    if flags & swe.ECL_PARTIAL:
+        return "Partial"
+    if not solar and flags & swe.ECL_PENUMBRAL:
+        return "Penumbral"
+    return "Eclipse"
+
+
+def eclipse_aspects_to_natal(longitude: float, natal_context: dict | None, orb_limit: float) -> list[dict]:
+    if not natal_context:
+        return []
+    matches = []
+    for natal_placement in natal_context["placements"]:
+        match = aspect_match(longitude, natal_placement["absolute_degree"], TRANSIT_ASPECTS, orb_limit)
+        if not match:
+            continue
+        matches.append(
+            {
+                "natal_body": natal_placement["body"],
+                "natal_position": natal_placement["position"],
+                "natal_house_whole_sign": natal_placement.get("house"),
+                "aspect": match["aspect"],
+                "orb": match["orb"],
+            }
+        )
+    return matches
+
+
+def scan_eclipses(
+    *,
+    events: list[dict],
+    start_jd: float,
+    end_jd: float,
+    zone: ZoneInfo,
+    natal_context: dict | None,
+    orb_limit: float,
+) -> None:
+    eclipse_jobs = [
+        ("solar_eclipse", "Solar Eclipse", True, swe.sol_eclipse_when_glob, swe.SUN, swe.ECL_ALLTYPES_SOLAR),
+        ("lunar_eclipse", "Lunar Eclipse", False, swe.lun_eclipse_when, swe.MOON, swe.ECL_ALLTYPES_LUNAR),
+    ]
+    ascendant_sign_index = natal_context.get("ascendant_sign_index") if natal_context else None
+
+    for event_type, label_base, solar, finder, body_id, eclipse_flags in eclipse_jobs:
+        search_jd = start_jd - 1.0
+        while search_jd <= end_jd:
+            try:
+                flags, tret = finder(search_jd, swe.FLG_SWIEPH, eclipse_flags, False)
+            except Exception as error:
+                raise HTTPException(status_code=500, detail=f"Could not calculate {label_base.lower()} timing: {error}") from error
+
+            exact_jd = float(tret[0])
+            if exact_jd > end_jd:
+                break
+            if exact_jd >= start_jd:
+                longitude, speed = planet_longitude_speed_at_jd(exact_jd, body_id, "Sun" if solar else "Moon")
+                exact_utc = julian_day_to_utc_datetime(exact_jd)
+                position = zodiac_position(longitude)
+                eclipse_type = eclipse_type_label(flags, solar)
+                event = {
+                    "event_type": event_type,
+                    "label": f"{eclipse_type} {label_base} at {position['formatted']}",
+                    "planet": label_base,
+                    "julian_day": round(exact_jd, 8),
+                    "exact_utc": exact_utc.isoformat().replace("+00:00", "Z"),
+                    "exact_local": exact_utc.astimezone(zone).isoformat(),
+                    "longitude": round(longitude, 8),
+                    "position": position,
+                    "speed_degrees_per_day": round(speed, 8),
+                    "is_retrograde": False,
+                    "target_key": f"{event_type}:{exact_jd:.6f}",
+                    "eclipse_type": eclipse_type,
+                    "eclipse_flags": int(flags),
+                    "aspects_to_natal": eclipse_aspects_to_natal(longitude, natal_context, orb_limit),
+                }
+                if ascendant_sign_index is not None:
+                    event["house_system"] = "Whole Sign"
+                    event["transit_house_whole_sign"] = whole_sign_house_for_degree(longitude, ascendant_sign_index)
+                append_unique_transit_event(events, event)
+            search_jd = max(exact_jd + 1.0, search_jd + 1.0)
+
+
+def detect_transit_aspect_event_patterns(events: list[dict]) -> list[dict]:
+    aspect_events = [event for event in events if event.get("event_type") == "transit_to_natal_aspect"]
+    patterns = []
+
+    by_date: dict[str, list[dict]] = {}
+    by_date_planet: dict[tuple[str, str], list[dict]] = {}
+    for event in aspect_events:
+        local_date = str(event.get("exact_local", ""))[:10]
+        planet = str(event.get("planet", ""))
+        by_date.setdefault(local_date, []).append(event)
+        by_date_planet.setdefault((local_date, planet), []).append(event)
+
+    for local_date, day_events in sorted(by_date.items()):
+        unique_planets = sorted({event.get("planet") for event in day_events})
+        unique_natal = sorted({event.get("natal_body") for event in day_events})
+        if len(day_events) >= 3:
+            patterns.append(
+                {
+                    "pattern": "Stacked Transit Day",
+                    "date": local_date,
+                    "event_count": len(day_events),
+                    "transit_planets": unique_planets,
+                    "natal_bodies": unique_natal,
+                }
+            )
+
+    for (local_date, planet), planet_events in sorted(by_date_planet.items()):
+        unique_natal = sorted({event.get("natal_body") for event in planet_events})
+        if len(unique_natal) >= 2:
+            patterns.append(
+                {
+                    "pattern": "Multi-Hit Transit",
+                    "date": local_date,
+                    "transit_planet": planet,
+                    "natal_bodies": unique_natal,
+                    "event_count": len(planet_events),
+                }
+            )
+
+    return patterns
+
+
 def scan_transit_longitude_crossings(
     *,
     events: list[dict],
@@ -1796,7 +2333,7 @@ def scan_transit_longitude_crossings(
     jd = min(start_jd + step_days, end_jd)
     while jd <= end_jd + 1e-9:
         current_delta = delta_at_jd(jd)
-        crosses = previous_delta == 0.0 or current_delta == 0.0 or previous_delta * current_delta < 0.0
+        crosses = transit_delta_crosses_target(previous_delta, current_delta)
         if crosses:
             exact_jd = find_transit_crossing_jd(previous_jd, jd, delta_at_jd)
             if exact_jd is not None:
@@ -1858,7 +2395,7 @@ def scan_transit_fixed_star_conjunctions(
     jd = min(start_jd + step_days, end_jd)
     while jd <= end_jd + 1e-9:
         current_delta = delta_at_jd(jd)
-        crosses = previous_delta == 0.0 or current_delta == 0.0 or previous_delta * current_delta < 0.0
+        crosses = transit_delta_crosses_target(previous_delta, current_delta)
         if crosses:
             exact_jd = find_transit_crossing_jd(previous_jd, jd, delta_at_jd)
             if exact_jd is not None:
@@ -1936,10 +2473,12 @@ def scan_transit_stations(
 
 
 def calculate_transit_timeline_payload(request: TransitTimelineRequest) -> dict:
-    planet_name, planet_id = resolve_transit_planet(request.planet)
+    transit_planets = resolve_transit_planets(request)
+    planet_names = [planet_name for planet_name, _planet_id in transit_planets]
     start_utc, end_exclusive_utc, zone = transit_date_window_utc(request.start_date, request.end_date, request.timezone)
     start_jd = datetime_to_julian_day_utc(start_utc)
     end_jd = datetime_to_julian_day_utc(end_exclusive_utc)
+    natal_context = build_transit_natal_context(request)
     warnings: set[str] = set()
     events: list[dict] = []
 
@@ -1949,40 +2488,63 @@ def calculate_transit_timeline_payload(request: TransitTimelineRequest) -> dict:
             f"No target_degrees were provided, so every whole degree 0-29 in {resolve_transit_sign(request.sign)[0]} was scanned."
         )
 
-    for target in degree_targets:
-        scan_transit_longitude_crossings(
-            events=events,
-            start_jd=start_jd,
-            end_jd=end_jd,
-            step_days=request.step_days,
-            planet_name=planet_name,
-            planet_id=planet_id,
-            zone=zone,
-            target=target,
-        )
+    for planet_name, planet_id in transit_planets:
+        for target in degree_targets:
+            scan_transit_longitude_crossings(
+                events=events,
+                start_jd=start_jd,
+                end_jd=end_jd,
+                step_days=request.step_days,
+                planet_name=planet_name,
+                planet_id=planet_id,
+                zone=zone,
+                target=target,
+            )
 
-    for fixed_star in request.fixed_stars:
-        scan_transit_fixed_star_conjunctions(
-            events=events,
-            warnings=warnings,
-            start_jd=start_jd,
-            end_jd=end_jd,
-            step_days=request.step_days,
-            planet_name=planet_name,
-            planet_id=planet_id,
-            zone=zone,
-            target=fixed_star,
-        )
+        for fixed_star in request.fixed_stars:
+            scan_transit_fixed_star_conjunctions(
+                events=events,
+                warnings=warnings,
+                start_jd=start_jd,
+                end_jd=end_jd,
+                step_days=request.step_days,
+                planet_name=planet_name,
+                planet_id=planet_id,
+                zone=zone,
+                target=fixed_star,
+            )
 
-    if request.include_retrograde_stations:
-        scan_transit_stations(
+        if request.include_retrograde_stations:
+            scan_transit_stations(
+                events=events,
+                start_jd=start_jd,
+                end_jd=end_jd,
+                step_days=request.step_days,
+                planet_name=planet_name,
+                planet_id=planet_id,
+                zone=zone,
+            )
+
+        if natal_context and request.include_transit_to_natal_aspects:
+            scan_transit_to_natal_aspects(
+                events=events,
+                start_jd=start_jd,
+                end_jd=end_jd,
+                step_days=request.step_days,
+                planet_name=planet_name,
+                planet_id=planet_id,
+                zone=zone,
+                natal_context=natal_context,
+            )
+
+    if request.include_eclipses:
+        scan_eclipses(
             events=events,
             start_jd=start_jd,
             end_jd=end_jd,
-            step_days=request.step_days,
-            planet_name=planet_name,
-            planet_id=planet_id,
             zone=zone,
+            natal_context=natal_context,
+            orb_limit=request.transit_aspect_orb,
         )
 
     events.sort(key=lambda event: event["julian_day"])
@@ -1990,17 +2552,46 @@ def calculate_transit_timeline_payload(request: TransitTimelineRequest) -> dict:
         warnings.add(f"Transit event list was truncated to the first {TRANSIT_MAX_EVENTS} events.")
         events = events[:TRANSIT_MAX_EVENTS]
 
+    transit_to_natal_aspects = [event for event in events if event.get("event_type") == "transit_to_natal_aspect"]
+    eclipses = [event for event in events if event.get("event_type") in {"solar_eclipse", "lunar_eclipse"}]
+    retrograde_regressions = [event for event in events if str(event.get("event_type", "")).startswith("station_")]
+    aspect_patterns = detect_aspect_patterns(natal_context["placements"], request.transit_aspect_orb) if natal_context and request.include_aspect_patterns else []
+    transit_aspect_patterns = detect_transit_aspect_event_patterns(events) if natal_context and request.include_aspect_patterns else []
+
+    if len(planet_names) == 1:
+        planet_label = planet_names[0]
+        planet_summary = planet_names[0]
+    elif planet_names == list(PLANETS.keys()):
+        planet_label = "All Planets"
+        planet_summary = "all supported transit bodies"
+    else:
+        planet_label = "Multiple Planets"
+        planet_summary = ", ".join(planet_names)
+
     chart_lines = [
         "VERIFIED_ASTROMEG_TRANSIT_TIMELINE",
-        f"SUCCESS: Swiss Ephemeris tropical transit timeline for {planet_name}.",
+        f"SUCCESS: Swiss Ephemeris tropical transit timeline for {planet_summary}.",
         f"Date window: {request.start_date.isoformat()} through {request.end_date.isoformat()} ({request.timezone}).",
     ]
+    if len(planet_names) > 1:
+        chart_lines.append("Transit bodies: " + ", ".join(planet_names) + ".")
+    if natal_context:
+        chart_lines.append("Natal context: Whole Sign houses for transit-to-natal mapping only.")
+        chart_lines.append(f"Birthplace: {natal_context['birth_data']['resolved_place']}.")
     if request.sign:
         chart_lines.append(f"Sign target: {resolve_transit_sign(request.sign)[0]}.")
     if request.target_degrees:
         chart_lines.append("Requested degrees: " + ", ".join(f"{float(degree):g}" for degree in request.target_degrees))
     if request.fixed_stars:
         chart_lines.append("Fixed-star targets: " + ", ".join(target.label or target.name for target in request.fixed_stars))
+    if transit_to_natal_aspects:
+        chart_lines.append(f"Transit-to-natal exact aspect hits: {len(transit_to_natal_aspects)}.")
+    if eclipses:
+        chart_lines.append(f"Eclipses in window: {len(eclipses)}.")
+    if retrograde_regressions:
+        chart_lines.append(f"Retrograde/regression stations in window: {len(retrograde_regressions)}.")
+    if aspect_patterns:
+        chart_lines.append("Natal aspect patterns: " + ", ".join(pattern["pattern"] for pattern in aspect_patterns) + ".")
     chart_lines.append("")
 
     if events:
@@ -2026,18 +2617,32 @@ def calculate_transit_timeline_payload(request: TransitTimelineRequest) -> dict:
         "verified_transit_timeline": True,
         "engine": "Swiss Ephemeris",
         "zodiac": ZODIAC,
-        "planet": planet_name,
+        "planet": planet_label,
+        "planets": planet_names,
+        "natal_chart_house_system": "Whole Sign" if natal_context else None,
+        "natal_chart": natal_context,
+        "transit_to_natal_aspects": transit_to_natal_aspects,
+        "aspect_patterns": aspect_patterns,
+        "transit_aspect_patterns": transit_aspect_patterns,
+        "eclipses": eclipses,
+        "retrograde_regressions": retrograde_regressions,
         "start_date": request.start_date.isoformat(),
         "end_date": request.end_date.isoformat(),
         "timezone": request.timezone,
         "start_utc": start_utc.isoformat().replace("+00:00", "Z"),
         "end_utc": (end_exclusive_utc - timedelta(microseconds=1)).isoformat().replace("+00:00", "Z"),
         "settings": {
+            "planet": planet_label,
+            "planets": planet_names,
             "sign": resolve_transit_sign(request.sign)[0] if request.sign else None,
             "target_degrees": [float(degree) for degree in request.target_degrees],
             "fixed_stars": [target.model_dump() for target in request.fixed_stars],
             "include_sign_ingress": request.include_sign_ingress,
             "include_retrograde_stations": request.include_retrograde_stations,
+            "include_transit_to_natal_aspects": request.include_transit_to_natal_aspects,
+            "include_aspect_patterns": request.include_aspect_patterns,
+            "include_eclipses": request.include_eclipses,
+            "transit_aspect_orb": request.transit_aspect_orb,
             "step_days": request.step_days,
         },
         "events": events,
@@ -4541,11 +5146,14 @@ def custom_openapi():
         },
     }
     transit_timeline_operation = {
-        "summary": "Calculate exact transit timeline",
+        "summary": "Calculate exact transit timeline and Whole Sign natal transit report",
         "description": (
             "Calculate exact tropical transit dates, degrees, fixed-star conjunctions, and station dates "
-            "with Swiss Ephemeris. Use this for requests like Jupiter through Leo, exact degree hits, "
-            "Regulus conjunctions, and retrograde/direct station timing."
+            "with Swiss Ephemeris. Use planet='all' or planets=[...] for all transit bodies. "
+            "When birth data is supplied, calculate transits to the natal chart in Whole Sign houses only for this transit endpoint, "
+            "including exact transit-to-natal aspects, natal aspect patterns, retrograde/regression stations, and eclipses. "
+            "Use this for client transit reports, Jupiter through Leo, exact degree hits, Regulus conjunctions, "
+            "and retrograde/direct station timing."
         ),
         "operationId": "calculate_transit_timeline",
         "requestBody": {
@@ -5170,7 +5778,7 @@ def calculate_solar_return(request: SolarReturnRequest):
     operation_id="calculate_transit_timeline",
     description=(
         "Calculate exact tropical transit dates, degree crossings, fixed-star conjunctions, "
-        "and retrograde/direct stations with Swiss Ephemeris."
+        "retrograde/direct stations, eclipses, and optional Whole Sign transits to natal chart with aspects."
     ),
     responses={
         200: {"description": "Exact transit timeline result.", "content": {"application/json": {"schema": {"type": "object", "additionalProperties": True}}}},
