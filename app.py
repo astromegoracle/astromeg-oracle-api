@@ -5148,12 +5148,9 @@ def custom_openapi():
     transit_timeline_operation = {
         "summary": "Calculate exact transit timeline and Whole Sign natal transit report",
         "description": (
-            "Calculate exact tropical transit dates, degrees, fixed-star conjunctions, and station dates "
-            "with Swiss Ephemeris. Use planet='all' or planets=[...] for all transit bodies. "
-            "When birth data is supplied, calculate transits to the natal chart in Whole Sign houses only for this transit endpoint, "
-            "including exact transit-to-natal aspects, natal aspect patterns, retrograde/regression stations, and eclipses. "
-            "Use this for client transit reports, Jupiter through Leo, exact degree hits, Regulus conjunctions, "
-            "and retrograde/direct station timing."
+            "Calculate exact tropical transits for one or all planets. "
+            "With birth data, returns Whole Sign natal transits, aspects, "
+            "aspect patterns, retrograde/regression stations, and eclipses."
         ),
         "operationId": "calculate_transit_timeline",
         "requestBody": {
