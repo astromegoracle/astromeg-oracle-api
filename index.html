@@ -1,0 +1,669 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#f6eaf2">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Astromeg Oracle">
+    <title>Astromeg Oracle App Preview</title>
+    <link rel="manifest" href="./manifest.webmanifest">
+    <link rel="icon" href="./assets/astromeg-oracle-logo-gold.png">
+    <link rel="apple-touch-icon" href="./assets/astromeg-oracle-logo-gold.png">
+  <link rel="stylesheet" href="./styles.css?v=zodiac-playlist-complete-v1">
+  </head>
+  <body class="onboarding-active">
+    <div class="ambient ambient-one"></div>
+    <div class="ambient ambient-two"></div>
+    <div class="ambient ambient-three"></div>
+
+    <main class="phone-shell" id="app">
+      <div class="glass-halo" aria-hidden="true"></div>
+      <header class="app-header">
+        <button class="icon-button ghost back-button" type="button" aria-label="Go back" data-back hidden>
+          <span aria-hidden="true">‹</span>
+        </button>
+        <button class="brand-mark" type="button" data-go="home" aria-label="Astromeg Oracle home">
+          <span>Astromeg Oracle</span>
+        </button>
+        <button class="icon-button ghost menu-toggle" type="button" aria-label="Open Oracle Menu" aria-controls="oracle-menu" aria-expanded="false" data-menu-toggle>
+          <span aria-hidden="true">☀</span>
+        </button>
+      </header>
+
+      <div class="menu-scrim" data-menu-close hidden></div>
+      <aside class="oracle-menu" id="oracle-menu" aria-label="Oracle Menu" aria-hidden="true">
+        <div class="oracle-menu-header">
+          <p class="eyebrow">Oracle Menu</p>
+          <button class="icon-button ghost" type="button" aria-label="Close Oracle Menu" data-menu-close>
+            <span aria-hidden="true">×</span>
+          </button>
+        </div>
+
+        <div class="menu-list">
+          <button class="menu-row" type="button" data-go="today-sky">
+            <span class="menu-icon" aria-hidden="true">☉</span>
+            <span><strong>Today’s Sky</strong><small>Daily transit guidance</small></span>
+          </button>
+          <button class="menu-row" type="button" data-go="readings">
+            <span class="menu-icon" aria-hidden="true">☷</span>
+            <span><strong>Saved Readings</strong><small>Your Oracle guidance library</small></span>
+          </button>
+          <button class="menu-row" type="button" data-go="my-access">
+            <span class="menu-icon" aria-hidden="true">✦</span>
+            <span><strong>My Access</strong><small>Plan and access status</small></span>
+          </button>
+          <button class="menu-row" type="button" data-go="how-to-ask">
+            <span class="menu-icon" aria-hidden="true">?</span>
+            <span><strong>How to Ask</strong><small>Prompt examples</small></span>
+          </button>
+          <button class="menu-row" type="button" data-go="theme">
+            <span class="menu-icon" aria-hidden="true">☀</span>
+            <span><strong>Theme</strong><small>Light and dark mode ready</small></span>
+          </button>
+          <button class="menu-row" type="button" data-go="contact">
+            <span class="menu-icon" aria-hidden="true">✉</span>
+            <span><strong>Contact Astromeg</strong><small>Access, payment, or account help</small></span>
+          </button>
+          <button class="menu-row" type="button" data-logout>
+            <span class="menu-icon" aria-hidden="true">↻</span>
+            <span><strong>Log Out</strong><small>Clear this preview session</small></span>
+          </button>
+        </div>
+      </aside>
+
+      <section class="screen active onboarding-screen" data-screen="start" id="start" aria-label="Astromeg Oracle onboarding">
+        <div class="onboarding-artboard">
+          <img
+            class="onboarding-artwork"
+            src="./assets/astromeg-onboarding-01.png"
+            alt=""
+            aria-hidden="true"
+          >
+          <button
+            class="begin-journey-hotspot"
+            type="button"
+            data-go="activate"
+            aria-label="Begin your journey"
+          ></button>
+        </div>
+      </section>
+
+      <section class="screen" data-screen="activate" id="activate">
+        <div class="screen-heading">
+          <p class="eyebrow">Oracle Access</p>
+          <h2>Activate your private space.</h2>
+          <p>Use your email and access code to open your Astromeg Oracle app.</p>
+        </div>
+
+        <form class="soft-card form-card" data-activate-form>
+          <label>
+            <span>Email</span>
+            <input type="email" name="email" autocomplete="email" placeholder="you@example.com" required>
+          </label>
+          <label>
+            <span>Access code</span>
+            <input type="text" name="accessCode" autocomplete="one-time-code" placeholder="ASTRO-XXXX" required>
+          </label>
+          <button class="primary-action" type="submit">Activate My Oracle</button>
+        </form>
+
+        <button class="secondary-action" type="button" data-go="birth">Preview the App</button>
+      </section>
+
+      <section class="screen" data-screen="birth" id="birth">
+        <div class="screen-heading">
+          <p class="eyebrow">Birth Profile</p>
+          <h2>Create your chart foundation.</h2>
+          <p>Your birth data becomes the private anchor for readings, timing, and guidance.</p>
+        </div>
+
+        <form class="soft-card form-card" data-birth-form>
+          <label>
+            <span>Birth date</span>
+            <input type="date" name="birthDate" required>
+          </label>
+          <label>
+            <span>Birth time</span>
+            <input type="time" name="birthTime" required>
+          </label>
+          <label>
+            <span>Birth place</span>
+            <input type="text" name="birthPlace" placeholder="City, Country" required>
+          </label>
+          <button class="primary-action" type="submit">Save Birth Profile</button>
+        </form>
+      </section>
+
+      <section class="screen" data-screen="home" id="home">
+        <div class="home-hero">
+          <p class="eyebrow">Today’s Oracle</p>
+          <h2>What is calling for your attention today?</h2>
+          <p>Choose a doorway or ask your own question.</p>
+        </div>
+
+        <div class="oracle-status-pill" data-access-pill>
+          <span aria-hidden="true">✦</span>
+          <span>Oracle Access Active</span>
+        </div>
+
+        <div class="intent-grid">
+          <button class="intent-card" type="button" data-fill-prompt="What love pattern is showing now?" data-go="ask">
+            <span class="intent-icon">♡</span>
+            <span class="intent-copy">
+              <strong>Love & Patterns</strong>
+              <small>Relationships, attraction, repeating cycles</small>
+            </span>
+          </button>
+          <button class="intent-card" type="button" data-fill-prompt="What money timing matters now?" data-go="ask">
+            <span class="intent-icon">✦</span>
+            <span class="intent-copy">
+              <strong>Money & Career</strong>
+              <small>Clients, income, business timing</small>
+            </span>
+          </button>
+          <button class="intent-card" type="button" data-fill-prompt="What timing window opens now?" data-go="ask">
+            <span class="intent-icon">☉</span>
+            <span class="intent-copy">
+              <strong>Timing Windows</strong>
+              <small>Transits, decisions, lucky openings</small>
+            </span>
+          </button>
+          <button class="intent-card" type="button" data-fill-prompt="What karmic pattern needs healing now?" data-go="ask">
+            <span class="intent-icon">☽</span>
+            <span class="intent-copy">
+              <strong>Karma & Healing</strong>
+              <small>Emotional patterns, release, soul lessons</small>
+            </span>
+          </button>
+        </div>
+
+        <article class="soft-card insight-card transits-card">
+          <p class="eyebrow">Your Daily Tea</p>
+          <h3>What is the sky activating now?</h3>
+          <p>Use today’s planetary weather as a doorway into timing, emotion, decisions, and the next aligned step.</p>
+          <div class="transit-actions" aria-label="Transit prompt shortcuts">
+            <button type="button" data-daily-popup="sky" data-fill-prompt="What transits are affecting me today?">
+              <span>☉</span>
+              <strong>Today’s Sky</strong>
+            </button>
+            <button type="button" data-daily-popup="moon" data-fill-prompt="What should I know about my Moon and emotional timing today?">
+              <span>☽</span>
+              <strong>Moon Mood</strong>
+            </button>
+            <button class="daily-planet-card" type="button" data-daily-popup="planet" data-planetary-guide data-fill-prompt="What should I know about today’s planetary ruler?" title="Daily mystical guide">
+              <span class="daily-planet-glyph" data-guide-glyph>♃</span>
+              <strong>Today’s Planet</strong>
+            </button>
+          </div>
+        </article>
+
+        <section class="zodiac-playlist-section" aria-labelledby="zodiac-playlist-title">
+          <div class="zodiac-playlist-heading">
+            <p class="eyebrow" id="zodiac-playlist-title">Zodiac Playlist</p>
+          </div>
+          <div class="zodiac-playlist-grid">
+            <article class="zodiac-playlist-card" aria-label="Aries playlist artwork">
+              <div class="zodiac-playlist-artwork">
+                <img src="./assets/zodiac-playlist-aries.jpeg" alt="Glass Aries glyph with headphones">
+              </div>
+              <div class="zodiac-playlist-caption">
+                <span>Aries</span>
+              </div>
+            </article>
+            <article class="zodiac-playlist-card" aria-label="Taurus playlist artwork">
+              <div class="zodiac-playlist-artwork">
+                <img src="./assets/zodiac-playlist-taurus.jpeg" alt="Glass Taurus glyph with headphones">
+              </div>
+              <div class="zodiac-playlist-caption">
+                <span>Taurus</span>
+              </div>
+            </article>
+            <article class="zodiac-playlist-card" aria-label="Gemini playlist artwork">
+              <div class="zodiac-playlist-artwork">
+                <img src="./assets/zodiac-playlist-gemini.jpeg" alt="Glass Gemini glyph with headphones">
+              </div>
+              <div class="zodiac-playlist-caption">
+                <span>Gemini</span>
+              </div>
+            </article>
+            <article class="zodiac-playlist-card" aria-label="Cancer playlist artwork">
+              <div class="zodiac-playlist-artwork">
+                <img src="./assets/zodiac-playlist-cancer.jpeg" alt="Glass Cancer glyph with headphones">
+              </div>
+              <div class="zodiac-playlist-caption">
+                <span>Cancer</span>
+              </div>
+            </article>
+            <article class="zodiac-playlist-card" aria-label="Leo playlist artwork">
+              <div class="zodiac-playlist-artwork">
+                <img src="./assets/zodiac-playlist-leo.jpeg" alt="Glass Leo glyph with headphones">
+              </div>
+              <div class="zodiac-playlist-caption">
+                <span>Leo</span>
+              </div>
+            </article>
+            <article class="zodiac-playlist-card" aria-label="Virgo playlist artwork">
+              <div class="zodiac-playlist-artwork">
+                <img src="./assets/zodiac-playlist-virgo.jpeg" alt="Glass Virgo glyph with headphones">
+              </div>
+              <div class="zodiac-playlist-caption">
+                <span>Virgo</span>
+              </div>
+            </article>
+            <article class="zodiac-playlist-card" aria-label="Libra playlist artwork">
+              <div class="zodiac-playlist-artwork">
+                <img src="./assets/zodiac-playlist-libra.jpeg" alt="Glass Libra glyph with headphones">
+              </div>
+              <div class="zodiac-playlist-caption">
+                <span>Libra</span>
+              </div>
+            </article>
+            <article class="zodiac-playlist-card" aria-label="Scorpio playlist artwork">
+              <div class="zodiac-playlist-artwork">
+                <img src="./assets/zodiac-playlist-scorpio.jpeg" alt="Glass Scorpio glyph with headphones">
+              </div>
+              <div class="zodiac-playlist-caption">
+                <span>Scorpio</span>
+              </div>
+            </article>
+            <article class="zodiac-playlist-card" aria-label="Sagittarius playlist artwork">
+              <div class="zodiac-playlist-artwork">
+                <img src="./assets/zodiac-playlist-sagittarius.jpeg" alt="Glass Sagittarius glyph with headphones">
+              </div>
+              <div class="zodiac-playlist-caption">
+                <span>Sagittarius</span>
+              </div>
+            </article>
+            <article class="zodiac-playlist-card" aria-label="Capricorn playlist artwork">
+              <div class="zodiac-playlist-artwork">
+                <img src="./assets/zodiac-playlist-capricorn.jpeg" alt="Glass Capricorn glyph with headphones">
+              </div>
+              <div class="zodiac-playlist-caption">
+                <span>Capricorn</span>
+              </div>
+            </article>
+            <article class="zodiac-playlist-card" aria-label="Aquarius playlist artwork">
+              <div class="zodiac-playlist-artwork">
+                <img src="./assets/zodiac-playlist-aquarius.jpeg" alt="Glass Aquarius glyph with headphones">
+              </div>
+              <div class="zodiac-playlist-caption">
+                <span>Aquarius</span>
+              </div>
+            </article>
+            <article class="zodiac-playlist-card" aria-label="Pisces playlist artwork">
+              <div class="zodiac-playlist-artwork">
+                <img src="./assets/zodiac-playlist-pisces.jpeg" alt="Glass Pisces glyph with headphones">
+              </div>
+              <div class="zodiac-playlist-caption">
+                <span>Pisces</span>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <article class="soft-card insight-card path-card">
+          <p class="eyebrow">Continue Your Path</p>
+          <h3>Return to your last reading</h3>
+          <p>Pick up where you left off, review your guidance, or save notes from your Oracle session.</p>
+          <button class="secondary-action path-action" type="button" data-go="readings">Open Saved Readings</button>
+        </article>
+      </section>
+
+      <section class="screen" data-screen="ask" id="ask">
+        <div class="screen-heading compact">
+          <p class="eyebrow">Ask the Oracle</p>
+          <h2>Start with one real question.</h2>
+        </div>
+
+        <div class="chat-window" aria-live="polite" data-chat-log>
+          <div class="message oracle">
+            <span>Astromeg Oracle</span>
+            <p>I’m here. Ask about love, money, timing, purpose, healing, or the next decision in front of you.</p>
+          </div>
+        </div>
+
+        <form class="ask-bar" data-ask-form>
+          <input type="text" name="question" placeholder="Ask your question..." autocomplete="off" required>
+          <button type="submit" aria-label="Send question">✦</button>
+        </form>
+      </section>
+
+      <section class="screen" data-screen="readings" id="readings">
+        <div class="screen-heading">
+          <p class="eyebrow">Saved Readings</p>
+          <h2>Your guidance library.</h2>
+          <p>Saved readings can become a private archive of timing, choices, and personal patterns.</p>
+        </div>
+
+        <div class="reading-list">
+          <article class="reading-card">
+            <span>Year-Ahead Alignment</span>
+            <h3>Career, money, and visibility themes</h3>
+            <p>Ready to save as a PDF reading in the app version.</p>
+          </article>
+          <article class="reading-card">
+            <span>Relationship Pattern</span>
+            <h3>Repeating cycles and next-step clarity</h3>
+            <p>Return to this when the same lesson shows up again.</p>
+          </article>
+          <article class="reading-card">
+            <span>Timing Window</span>
+            <h3>Launch, pause, or prepare</h3>
+            <p>Use dates and chart weather to move deliberately.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="screen" data-screen="learn" id="learn">
+        <div class="screen-heading">
+          <p class="eyebrow">Learn Astrology</p>
+          <h2>Study the stars one layer at a time.</h2>
+          <p>Choose a learning path and build your astrology language through guided lessons.</p>
+        </div>
+
+        <div class="lesson-grid">
+          <button class="lesson-card" type="button">Natal Astrology</button>
+          <button class="lesson-card" type="button">Transits</button>
+          <button class="lesson-card" type="button">Synastry</button>
+          <button class="lesson-card" type="button">Horary</button>
+          <button class="lesson-card" type="button">Solar Returns</button>
+          <button class="lesson-card" type="button">Quiz Me</button>
+        </div>
+      </section>
+
+      <section class="screen" data-screen="today-sky" id="today-sky">
+        <div class="screen-heading">
+          <p class="eyebrow">Today’s Sky</p>
+          <h2>Daily transit guidance is coming soon.</h2>
+          <p>Your daily Moon, transit, and current-sky guidance will appear here.</p>
+        </div>
+      </section>
+
+      <section class="screen" data-screen="my-access" id="my-access">
+        <div class="screen-heading">
+          <p class="eyebrow">My Access</p>
+          <h2 data-access-title>Access Status</h2>
+          <p data-access-subtitle>Your access details will appear here.</p>
+        </div>
+
+        <article class="soft-card profile-card">
+          <span>Current Plan</span>
+          <strong data-access-state>Preview active</strong>
+          <p>Payment and entitlement logic stays untouched in this UX preview.</p>
+        </article>
+
+        <button class="primary-action access-plans-action" type="button" data-go="pricing">
+          Explore Oracle Plans
+        </button>
+      </section>
+
+      <section class="screen pricing-screen" data-screen="pricing" id="pricing">
+        <div class="pricing-portal">
+          <div class="pricing-orb" aria-hidden="true">
+            <span class="pricing-orb-glow"></span>
+            <img src="./assets/astromeg-oracle-pastel-logo-cropped.png" alt="">
+          </div>
+          <p class="eyebrow">Oracle Access</p>
+          <h2>Choose Your Access</h2>
+          <p>Four app plans are configured for preview. Checkout is not active.</p>
+          <div class="pricing-meta" aria-label="Pricing details">
+            <span>USD</span>
+            <span aria-hidden="true">✦</span>
+            <span>PayPal</span>
+          </div>
+        </div>
+
+        <div class="pricing-grid" aria-label="Oracle plan preview">
+          <article class="pricing-plan-card" data-plan-id="ORACLE_ESSENTIAL_MONTHLY">
+            <div class="pricing-plan-topline">
+              <span class="pricing-tier">Essential</span>
+              <span class="pricing-cadence">Monthly</span>
+            </div>
+            <h3 data-plan-name>Oracle Essential</h3>
+            <p class="pricing-price"><span data-plan-price>$11.99</span><small data-plan-period>/ month</small></p>
+            <p class="pricing-unlimited">Unlimited conversations</p>
+            <div class="pricing-benefit-group">
+              <h4>Unlimited Core Readings</h4>
+              <ul class="pricing-detail-list">
+                <li>In-depth Natal Chart</li>
+                <li>Transits</li>
+                <li>Solar Return</li>
+                <li>Secondary Progressed</li>
+                <li>Solar Arc Directions</li>
+                <li>Daily Tea</li>
+                <li>Planet of the Day</li>
+                <li>Zodiac Playlist</li>
+                <li>Basic-Advanced Astrology Course with AEA Certification</li>
+              </ul>
+            </div>
+            <div class="pricing-benefit-group pricing-addons">
+              <h4>Add-ons</h4>
+              <ul class="pricing-detail-list">
+                <li>Synastry</li>
+                <li>Composite</li>
+                <li>Davison</li>
+                <li>Draconic Soul Path</li>
+                <li>Firdaria Time Lords</li>
+                <li>Hellenistic Profection</li>
+                <li>Instant Q&amp;A Horary</li>
+                <li>Event-timing Electional</li>
+                <li>Deeper Look Harmonic</li>
+              </ul>
+            </div>
+            <button class="pricing-preview-button" type="button" aria-disabled="true" tabindex="-1">Checkout not active</button>
+          </article>
+
+          <article class="pricing-plan-card" data-plan-id="ORACLE_ESSENTIAL_ANNUAL">
+            <div class="pricing-plan-topline">
+              <span class="pricing-tier">Essential</span>
+              <span class="pricing-cadence">Annual</span>
+            </div>
+            <h3 data-plan-name>Oracle Essential</h3>
+            <p class="pricing-price"><span data-plan-price>$108</span><small data-plan-period>/ year</small></p>
+            <p class="pricing-unlimited">Unlimited conversations</p>
+            <div class="pricing-benefit-group">
+              <h4>Unlimited Core Readings</h4>
+              <ul class="pricing-detail-list">
+                <li>In-depth Natal Chart</li>
+                <li>Transits</li>
+                <li>Solar Return</li>
+                <li>Secondary Progressed</li>
+                <li>Solar Arc Directions</li>
+                <li>Daily Tea</li>
+                <li>Planet of the Day</li>
+                <li>Zodiac Playlist</li>
+                <li>Basic-Advanced Astrology Course with AEA Certification</li>
+                <li class="pricing-detail-group">
+                  <span>Love Readings Unlocked</span>
+                  <ul>
+                    <li>Synastry</li>
+                    <li>Composite</li>
+                    <li>Davison</li>
+                  </ul>
+                </li>
+              </ul>
+            </div>
+            <div class="pricing-benefit-group pricing-addons">
+              <h4>Add-ons</h4>
+              <ul class="pricing-detail-list">
+                <li>Draconic Soul Path</li>
+                <li>Firdaria Time Lords</li>
+                <li>Hellenistic Profection</li>
+                <li>Instant Q&amp;A Horary</li>
+                <li>Event-timing Electional</li>
+                <li>Deeper Look Harmonic</li>
+              </ul>
+            </div>
+            <button class="pricing-preview-button" type="button" aria-disabled="true" tabindex="-1">Checkout not active</button>
+          </article>
+
+          <article class="pricing-plan-card all-access" data-plan-id="ORACLE_ALL_ACCESS_MONTHLY">
+            <div class="pricing-plan-topline">
+              <span class="pricing-tier">All Access</span>
+              <span class="pricing-cadence">Monthly</span>
+            </div>
+            <h3 data-plan-name>Oracle All Access</h3>
+            <p class="pricing-price"><span data-plan-price>$19</span><small data-plan-period>/ month</small></p>
+            <p class="pricing-unlimited">Unlimited conversations</p>
+            <p class="pricing-included-line">All readings in Core Essential</p>
+            <div class="pricing-benefit-group">
+              <h4>Advanced Readings Unlocked</h4>
+              <ul class="pricing-detail-list">
+                <li>Draconic Soul Path</li>
+                <li>Firdaria Time Lords</li>
+                <li>Hellenistic Profection</li>
+                <li>Instant Q&amp;A Horary</li>
+                <li>Event-timing Electional</li>
+                <li>Deeper Look Harmonic</li>
+                <li>Fixed Stars</li>
+              </ul>
+            </div>
+            <button class="pricing-preview-button" type="button" aria-disabled="true" tabindex="-1">Checkout not active</button>
+          </article>
+
+          <article class="pricing-plan-card all-access" data-plan-id="ORACLE_ALL_ACCESS_ANNUAL">
+            <div class="pricing-plan-topline">
+              <span class="pricing-tier">All Access</span>
+              <span class="pricing-cadence">Annual</span>
+            </div>
+            <h3 data-plan-name>Oracle All Access</h3>
+            <p class="pricing-price"><span data-plan-price>$212</span><small data-plan-period>/ year</small></p>
+            <p class="pricing-unlimited">Unlimited conversations</p>
+            <p class="pricing-included-line">All readings in Core Essential</p>
+            <div class="pricing-benefit-group">
+              <h4>Advanced Readings Unlocked</h4>
+              <ul class="pricing-detail-list">
+                <li>Draconic Soul Path</li>
+                <li>Firdaria Time Lords</li>
+                <li>Hellenistic Profection</li>
+                <li>Instant Q&amp;A Horary</li>
+                <li>Event-timing Electional</li>
+                <li>Deeper Look Harmonic</li>
+                <li>Arabic Parts (Lots)</li>
+                <li>Fixed Stars</li>
+              </ul>
+            </div>
+            <div class="pricing-benefit-group pricing-membership-group">
+              <h4>Instant Astromeg Inner Circle Membership for 1 Year</h4>
+              <ul class="pricing-detail-list">
+                <li>Community chat</li>
+                <li>Direct access to Astromeg online sessions, updates, guidance, and programs</li>
+                <li>Option to book a live reading with Astromeg</li>
+                <li>First access to upgrades, discounts, and exclusive Inner Circle privileges</li>
+              </ul>
+            </div>
+            <button class="pricing-preview-button" type="button" aria-disabled="true" tabindex="-1">Checkout not active</button>
+          </article>
+        </div>
+
+        <div class="pricing-footnote">
+          <span>Pricing preview only</span>
+          <p>Local currency estimates may be shown for reference. Checkout remains in USD.</p>
+        </div>
+      </section>
+
+      <section class="screen" data-screen="how-to-ask" id="how-to-ask">
+        <div class="screen-heading">
+          <p class="eyebrow">How to Ask</p>
+          <h2>Start with the real question.</h2>
+        </div>
+
+        <div class="prompt-list">
+          <button class="prompt-row" type="button" data-fill-prompt="What should I focus on this week based on my chart?" data-go="ask">What should I focus on this week based on my chart?</button>
+          <button class="prompt-row" type="button" data-fill-prompt="What do my current transits say about money?" data-go="ask">What do my current transits say about money?</button>
+          <button class="prompt-row" type="button" data-fill-prompt="What lesson should I learn next in astrology?" data-go="ask">What lesson should I learn next in astrology?</button>
+          <button class="prompt-row" type="button" data-fill-prompt="What timing should I watch for love, career, or decisions?" data-go="ask">What timing should I watch for love, career, or decisions?</button>
+        </div>
+      </section>
+
+      <section class="screen" data-screen="theme" id="theme">
+        <div class="screen-heading">
+          <p class="eyebrow">Theme</p>
+          <h2>Your theme controls will live here.</h2>
+          <p>The sun icon now opens Oracle Menu. Light and dark mode can connect here later.</p>
+        </div>
+      </section>
+
+      <section class="screen" data-screen="contact" id="contact">
+        <div class="screen-heading">
+          <p class="eyebrow">Contact Astromeg</p>
+          <h2>Need help with access, payment, or your account?</h2>
+          <p>Contact Astromeg.</p>
+        </div>
+      </section>
+
+      <section class="screen" data-screen="my-chart" id="my-chart">
+        <div class="screen-heading">
+          <p class="eyebrow">My Chart</p>
+          <h2>Your saved chart foundation.</h2>
+          <p>Birth data, access, saved guidance, and account settings can be managed here.</p>
+        </div>
+
+        <div class="profile-stack">
+          <article class="soft-card profile-card">
+            <span>Access Plan</span>
+            <strong data-access-state>Preview active</strong>
+            <p>Fixed-period private Oracle access.</p>
+          </article>
+          <article class="soft-card profile-card">
+            <span>Birth Profile</span>
+            <strong data-birth-summary>Not saved yet</strong>
+            <p>Your chart foundation stays connected to readings.</p>
+          </article>
+          <article class="soft-card profile-card">
+            <span>Saved Readings</span>
+            <strong>Guidance library</strong>
+            <p>Your saved Oracle readings will appear here.</p>
+          </article>
+          <article class="soft-card profile-card">
+            <span>Account Settings</span>
+            <strong>Private by design</strong>
+            <p>Access, privacy, and app settings can live here.</p>
+          </article>
+        </div>
+      </section>
+
+      <dialog class="daily-dialog" data-daily-dialog aria-labelledby="daily-dialog-title">
+        <div class="daily-dialog-inner">
+          <button class="daily-dialog-close" type="button" data-daily-dialog-close aria-label="Close daily guide">×</button>
+          <p class="eyebrow">Your Daily Tea</p>
+          <div class="daily-dialog-heading">
+            <span class="daily-dialog-glyph" data-daily-dialog-glyph>☉</span>
+            <div>
+              <small data-daily-dialog-label>Today’s Sky</small>
+              <h2 id="daily-dialog-title" data-daily-dialog-title>Today’s Sky</h2>
+            </div>
+          </div>
+          <p class="daily-dialog-keywords" data-daily-dialog-keywords>Planetary weather · timing · momentum</p>
+          <p class="daily-dialog-body" data-daily-dialog-body></p>
+          <p class="daily-dialog-tip" data-daily-dialog-tip></p>
+          <button class="primary-action daily-dialog-ask" type="button" data-daily-dialog-ask>Ask the Oracle</button>
+        </div>
+      </dialog>
+
+      <nav class="bottom-nav" aria-label="App navigation">
+        <button type="button" data-go="home" aria-label="Home">
+          <span>⌂</span>
+          <small>Home</small>
+        </button>
+        <button type="button" data-go="ask" aria-label="Ask">
+          <span>✦</span>
+          <small>Ask</small>
+        </button>
+        <button type="button" data-go="learn" aria-label="Learn">
+          <span>◫</span>
+          <small>Learn</small>
+        </button>
+        <button type="button" data-go="my-chart" aria-label="My Chart">
+          <span>☀</span>
+          <small>My Chart</small>
+        </button>
+      </nav>
+    </main>
+
+    <script src="./pricing-config.js?v=app-all-access-annual-v2" defer></script>
+    <script src="./app.js?v=daily-tea-popup-v1" defer></script>
+  </body>
+</html>

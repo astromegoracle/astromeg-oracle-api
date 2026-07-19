@@ -1,0 +1,19 @@
+{
+  "name": "Astromeg Oracle",
+  "short_name": "Astromeg",
+  "description": "Private astrology intelligence for chart-based guidance, timing, and saved readings.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#f6eaf2",
+  "background_color": "#fff8ef",
+  "icons": [
+    {
+      "src": "./assets/astromeg-oracle-logo-gold.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
