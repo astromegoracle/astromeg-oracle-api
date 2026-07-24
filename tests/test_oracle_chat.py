@@ -188,6 +188,166 @@ class OracleChatTests(unittest.TestCase):
         self.assertEqual(captured["calculation"]["placements"][0]["degree"], 8.25)
         self.assertEqual(captured["calculation"]["placements"][0]["house"], 6)
 
+    def test_chat_dispatches_every_supported_calculator(self):
+        birth_profile = {
+            "name": "Meg",
+            "birth_year": 1972,
+            "birth_month": 7,
+            "birth_day": 31,
+            "birth_hour": 22,
+            "birth_minute": 50,
+            "birthplace": "Quezon City, Philippines",
+        }
+        saved_people = [
+            {
+                "name": "Alex",
+                "birthDate": "1993-12-06",
+                "birthTime": "14:10",
+                "birthCity": "Quezon City",
+                "birthCountry": "Philippines",
+            }
+        ]
+        calculator_cases = [
+            ("calculate_chart", "Calculate my natal chart.", "natal_chart"),
+            (
+                "calculate_solar_return",
+                "Calculate my 2026 Solar Return in Quezon City.",
+                "solar_return",
+            ),
+            (
+                "calculate_transit_timeline",
+                "Calculate a Jupiter transit timeline from 2026-07-01 to 2026-08-01.",
+                "transit_timeline",
+            ),
+            (
+                "calculate_progressed_chart",
+                "Calculate my secondary progressed chart for 2026-08-01.",
+                "progressed_chart",
+            ),
+            (
+                "calculate_progressed_chart_solar_arc_angles",
+                "Calculate my progressed chart Solar Arc angles for 2026-08-01.",
+                "progressed_solar_arc_angles",
+            ),
+            (
+                "calculate_progressed_solar_longitude_chart",
+                "Calculate my progressed solar longitude chart for 2026-08-01.",
+                "progressed_solar_longitude",
+            ),
+            (
+                "calculate_solar_arc_directions",
+                "Calculate Solar Arc Directions for 2026-08-01.",
+                "solar_arc_directions",
+            ),
+            (
+                "calculate_harmonic_chart",
+                "Calculate my 24th harmonic chart.",
+                "harmonic_chart",
+            ),
+            (
+                "calculate_harmonic_charts",
+                "Calculate harmonic charts 5, 8, 10 and 11.",
+                "harmonic_charts",
+            ),
+            (
+                "calculate_composite_chart",
+                "Calculate a composite chart with Alex.",
+                "composite_chart",
+            ),
+            (
+                "calculate_davison_chart",
+                "Calculate a Davison chart with Alex.",
+                "davison_chart",
+            ),
+        ]
+        verification_payload = {
+            "status": "success",
+            "success": True,
+            "verified_chart_data": True,
+            "verified_solar_return": True,
+            "verified_transit_timeline": True,
+            "verified_progressed_chart": True,
+            "verified_solar_arc_directions": True,
+            "verified_harmonic_chart": True,
+            "verified_composite_chart": True,
+            "verified_davison_chart": True,
+            "placements": [{"body": "Sun", "sign": "Leo", "degree": 8.25}],
+        }
+
+        for calculator_name, question, expected_type in calculator_cases:
+            with self.subTest(calculator=calculator_name):
+                original_calculator = getattr(app, calculator_name)
+                captured = {}
+
+                def fake_calculator(*args, **kwargs):
+                    captured["args"] = args
+                    captured["kwargs"] = kwargs
+                    return app.json_response(verification_payload)
+
+                setattr(app, calculator_name, fake_calculator)
+                try:
+                    calculation = app.oracle_verified_calculation(
+                        app.OracleChatRequest(
+                            question=question,
+                            access_code="DEMO888",
+                            birth_profile=birth_profile,
+                            saved_people=saved_people,
+                        )
+                    )
+                finally:
+                    setattr(app, calculator_name, original_calculator)
+
+                self.assertTrue(captured)
+                self.assertEqual(calculation["status"], "verified")
+                self.assertEqual(calculation["type"], expected_type)
+                self.assertEqual(calculation["source"], "Swiss Ephemeris")
+
+    def test_calculator_missing_inputs_are_reported_without_running_engine(self):
+        payload = app.OracleChatRequest(
+            question="Calculate my transit timeline.",
+            access_code="DEMO888",
+            birth_profile={},
+        )
+
+        calculation = app.oracle_verified_calculation(payload)
+
+        self.assertEqual(calculation["status"], "missing_inputs")
+        self.assertEqual(calculation["type"], "transit_timeline")
+        self.assertIn("transit_start_date", calculation["missing"])
+        self.assertIn("transit_end_date", calculation["missing"])
+        self.assertIn("transit_planet_or_all_planets", calculation["missing"])
+
+    def test_relationship_chart_requires_named_person_when_several_are_saved(self):
+        payload = app.OracleChatRequest(
+            question="Calculate a composite chart.",
+            access_code="DEMO888",
+            birth_profile={
+                "birth_year": 1972,
+                "birth_month": 7,
+                "birth_day": 31,
+                "birth_hour": 22,
+                "birth_minute": 50,
+                "birthplace": "Quezon City, Philippines",
+            },
+            saved_people=[
+                {"name": "Alex"},
+                {"name": "Jordan"},
+            ],
+        )
+
+        calculation = app.oracle_verified_calculation(payload)
+
+        self.assertEqual(calculation["status"], "missing_inputs")
+        self.assertIn("saved_person_name", calculation["missing"])
+
+    def test_regular_oracle_question_does_not_trigger_a_calculator(self):
+        payload = app.OracleChatRequest(
+            question="What should I focus on emotionally today?",
+            access_code="DEMO888",
+        )
+
+        self.assertIsNone(app.oracle_verified_calculation(payload))
+
     def test_custom_gpt_schema_does_not_expose_app_chat(self):
         schema = app.custom_openapi()
         self.assertNotIn("/oracle/chat", schema["paths"])

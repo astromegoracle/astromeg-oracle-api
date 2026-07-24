@@ -5675,6 +5675,560 @@ def oracle_profile_int(profile: dict, field: str) -> int | None:
         return None
 
 
+def oracle_first_value(source: dict, *fields: str):
+    for field in fields:
+        value = source.get(field)
+        if value is not None and value != "":
+            return value
+    return None
+
+
+def oracle_date_value(value) -> date | None:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return date.fromisoformat(text[:10])
+    except ValueError:
+        return None
+
+
+def oracle_time_parts(value) -> tuple[int | None, int | None]:
+    text = str(value or "").strip()
+    match = re.match(r"^(\d{1,2}):(\d{2})", text)
+    if not match:
+        return None, None
+    hour, minute = int(match.group(1)), int(match.group(2))
+    if hour > 23 or minute > 59:
+        return None, None
+    return hour, minute
+
+
+def oracle_birth_values(source: dict) -> dict:
+    birth_date = oracle_date_value(
+        oracle_first_value(source, "birth_date", "birthDate")
+    )
+    birth_year = oracle_profile_int(source, "birth_year")
+    birth_month = oracle_profile_int(source, "birth_month")
+    birth_day = oracle_profile_int(source, "birth_day")
+    if birth_date is not None:
+        birth_year = birth_year or birth_date.year
+        birth_month = birth_month or birth_date.month
+        birth_day = birth_day or birth_date.day
+
+    birth_hour = oracle_profile_int(source, "birth_hour")
+    birth_minute = oracle_profile_int(source, "birth_minute")
+    parsed_hour, parsed_minute = oracle_time_parts(
+        oracle_first_value(source, "birth_time", "birthTime")
+    )
+    if birth_hour is None:
+        birth_hour = parsed_hour
+    if birth_minute is None:
+        birth_minute = parsed_minute
+
+    birthplace = str(
+        oracle_first_value(
+            source,
+            "birthplace",
+            "birth_place",
+            "birthPlace",
+        )
+        or ""
+    ).strip()
+    if not birthplace:
+        birth_city = str(
+            oracle_first_value(source, "birth_city", "birthCity") or ""
+        ).strip()
+        birth_country = str(
+            oracle_first_value(source, "birth_country", "birthCountry") or ""
+        ).strip()
+        birthplace = ", ".join(part for part in (birth_city, birth_country) if part)
+
+    return {
+        "name": str(oracle_first_value(source, "name", "customer_name") or "").strip(),
+        "birth_year": birth_year,
+        "birth_month": birth_month,
+        "birth_day": birth_day,
+        "birth_hour": birth_hour,
+        "birth_minute": birth_minute,
+        "birthplace": birthplace,
+    }
+
+
+def oracle_missing_birth_values(values: dict, prefix: str = "") -> list[str]:
+    required = (
+        "birth_year",
+        "birth_month",
+        "birth_day",
+        "birth_hour",
+        "birth_minute",
+        "birthplace",
+    )
+    return [
+        f"{prefix}{field}"
+        for field in required
+        if values.get(field) is None or values.get(field) == ""
+    ]
+
+
+def oracle_dates_in_text(text: str) -> list[date]:
+    dates: list[date] = []
+    for value in re.findall(r"\b(?:19|20)\d{2}-\d{2}-\d{2}\b", text):
+        parsed = oracle_date_value(value)
+        if parsed is not None and parsed not in dates:
+            dates.append(parsed)
+
+    month_pattern = (
+        r"\b(January|February|March|April|May|June|July|August|September|"
+        r"October|November|December)\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+"
+        r"((?:19|20)\d{2})\b"
+    )
+    for month_name, day_value, year_value in re.findall(
+        month_pattern,
+        text,
+        flags=re.IGNORECASE,
+    ):
+        try:
+            parsed = datetime.strptime(
+                f"{month_name} {day_value} {year_value}",
+                "%B %d %Y",
+            ).date()
+        except ValueError:
+            continue
+        if parsed not in dates:
+            dates.append(parsed)
+    return dates
+
+
+def oracle_current_date() -> date:
+    return datetime.now(ZoneInfo(MANILA_TIMEZONE)).date()
+
+
+def oracle_calculation_intent(payload: OracleChatRequest) -> str | None:
+    conversation = oracle_conversation_text(payload).casefold()
+    intent_patterns = (
+        (
+            "progressed_solar_arc_angles",
+            (
+                r"\bprogressed\b.*\bsolar\s+arc\b.*\b(?:angles?|cusps?)\b",
+                r"\bsolar\s+arc\b.*\bprogressed\b.*\b(?:angles?|cusps?)\b",
+            ),
+        ),
+        (
+            "progressed_solar_longitude",
+            (
+                r"\bprogressed\s+solar\s+(?:longitude|arc\s+longitude)\b",
+                r"\bprogressed\b.*\bsolar\s+longitude\b",
+            ),
+        ),
+        (
+            "solar_arc_directions",
+            (
+                r"\bsolar\s+arc\s+directions?\b",
+                r"\bdirected\s+solar\s+arc\b",
+            ),
+        ),
+        ("solar_return", (r"\bsolar\s+return\b",)),
+        (
+            "progressed_chart",
+            (
+                r"\bsecondary\s+progress(?:ed|ions?)\b",
+                r"\bprogressed\s+chart\b",
+            ),
+        ),
+        (
+            "transit_timeline",
+            (
+                r"\btransit\s+timeline\b",
+                r"\btransit\s+(?:dates?|windows?|events?)\b",
+                r"\bpredictive\s+transits?\b",
+            ),
+        ),
+        ("composite_chart", (r"\bcomposite\s+(?:relationship\s+)?chart\b",)),
+        ("davison_chart", (r"\bdavison\s+(?:relationship\s+)?chart\b",)),
+        (
+            "harmonic_charts",
+            (
+                r"\bharmonic\s+charts\b",
+                r"\bharmonics\b",
+            ),
+        ),
+        (
+            "harmonic_chart",
+            (
+                r"\bh\s*\d{1,3}\s+chart\b",
+                r"\b\d{1,3}(?:st|nd|rd|th)?\s+harmonic\b",
+                r"\bharmonic\s+\d{1,3}\b",
+                r"\bharmonic\s+chart\b",
+            ),
+        ),
+        (
+            "natal_chart",
+            (
+                r"\bnatal\s+chart\b",
+                r"\bbirth\s+chart\b",
+                r"\bnatal\s+placements?\b",
+                r"\bmy\s+chart\s+placements?\b",
+            ),
+        ),
+    )
+    for intent, patterns in intent_patterns:
+        if any(re.search(pattern, conversation) for pattern in patterns):
+            return intent
+    return None
+
+
+def oracle_progression_request(
+    payload: OracleChatRequest,
+) -> tuple[ProgressedChartRequest | None, list[str]]:
+    profile = payload.birth_profile
+    birth = oracle_birth_values(profile)
+    missing = oracle_missing_birth_values(birth)
+    conversation = oracle_conversation_text(payload)
+    target_date = oracle_date_value(
+        oracle_first_value(
+            profile,
+            "progression_date",
+            "target_date",
+            "calculation_date",
+        )
+    )
+    text_dates = oracle_dates_in_text(conversation)
+    if target_date is None and text_dates:
+        target_date = text_dates[-1]
+    if target_date is None and re.search(
+        r"\b(?:current|today|now)\b",
+        conversation,
+        flags=re.IGNORECASE,
+    ):
+        target_date = oracle_current_date()
+    if target_date is None:
+        missing.append("progression_date")
+
+    progression_location = str(
+        oracle_first_value(
+            profile,
+            "progression_location",
+            "target_location",
+            "calculation_location",
+        )
+        or birth["birthplace"]
+        or ""
+    ).strip()
+    if missing:
+        return None, missing
+
+    return (
+        ProgressedChartRequest(
+            birth_year=birth["birth_year"],
+            birth_month=birth["birth_month"],
+            birth_day=birth["birth_day"],
+            birth_hour=birth["birth_hour"],
+            birth_minute=birth["birth_minute"],
+            birthplace=birth["birthplace"],
+            progression_year=target_date.year,
+            progression_month=target_date.month,
+            progression_day=target_date.day,
+            progression_hour=oracle_profile_int(profile, "progression_hour") or 12,
+            progression_minute=oracle_profile_int(profile, "progression_minute") or 0,
+            progression_location=progression_location,
+        ),
+        [],
+    )
+
+
+def oracle_transit_planets(payload: OracleChatRequest, conversation: str) -> list[str]:
+    profile_value = oracle_first_value(
+        payload.birth_profile,
+        "transit_planets",
+        "transit_planet",
+        "planets",
+    )
+    if isinstance(profile_value, list):
+        requested = [str(value).strip() for value in profile_value if str(value).strip()]
+    elif profile_value:
+        requested = [
+            value.strip()
+            for value in re.split(r"[,/&]", str(profile_value))
+            if value.strip()
+        ]
+    else:
+        requested = []
+
+    if re.search(r"\ball\s+(?:supported\s+)?planets\b", conversation, flags=re.IGNORECASE):
+        return ["all"]
+    for planet_name in PLANETS:
+        if re.search(rf"\b{re.escape(planet_name)}\b", conversation, flags=re.IGNORECASE):
+            requested.append(planet_name)
+
+    canonical: list[str] = []
+    for value in requested:
+        match = next(
+            (
+                planet_name
+                for planet_name in PLANETS
+                if planet_name.casefold() == value.casefold()
+            ),
+            None,
+        )
+        if match and match not in canonical:
+            canonical.append(match)
+    return canonical
+
+
+def oracle_transit_request(
+    payload: OracleChatRequest,
+) -> tuple[TransitTimelineRequest | None, list[str]]:
+    profile = payload.birth_profile
+    conversation = oracle_conversation_text(payload)
+    dates = oracle_dates_in_text(conversation)
+    start_date = oracle_date_value(
+        oracle_first_value(profile, "transit_start_date", "start_date")
+    )
+    end_date = oracle_date_value(
+        oracle_first_value(profile, "transit_end_date", "end_date")
+    )
+    if start_date is None and dates:
+        start_date = dates[0]
+    if end_date is None and len(dates) > 1:
+        end_date = dates[-1]
+    if start_date is None and re.search(
+        r"\b(?:today|current|now)\b",
+        conversation,
+        flags=re.IGNORECASE,
+    ):
+        start_date = oracle_current_date()
+    if end_date is None and start_date is not None and re.search(
+        r"\b(?:today|on|for)\b[^\n.!?]{0,30}"
+        + re.escape(start_date.isoformat()),
+        conversation,
+        flags=re.IGNORECASE,
+    ):
+        end_date = start_date
+
+    planets = oracle_transit_planets(payload, conversation)
+    missing: list[str] = []
+    if start_date is None:
+        missing.append("transit_start_date")
+    if end_date is None:
+        missing.append("transit_end_date")
+    if not planets:
+        missing.append("transit_planet_or_all_planets")
+    if missing:
+        return None, missing
+
+    birth = oracle_birth_values(profile)
+    complete_birth = not oracle_missing_birth_values(birth)
+    request_values = {
+        "planet": planets[0],
+        "planets": [] if planets == ["all"] else planets,
+        "start_date": start_date,
+        "end_date": end_date,
+        "timezone": str(
+            oracle_first_value(profile, "transit_timezone", "timezone") or "UTC"
+        ).strip(),
+    }
+    if complete_birth:
+        request_values.update(
+            {
+                "birth_year": birth["birth_year"],
+                "birth_month": birth["birth_month"],
+                "birth_day": birth["birth_day"],
+                "birth_hour": birth["birth_hour"],
+                "birth_minute": birth["birth_minute"],
+                "birthplace": birth["birthplace"],
+            }
+        )
+    return TransitTimelineRequest(**request_values), []
+
+
+def oracle_harmonic_numbers(payload: OracleChatRequest) -> list[int]:
+    profile_value = oracle_first_value(
+        payload.birth_profile,
+        "harmonics",
+        "harmonic_numbers",
+        "harmonic_number",
+    )
+    values: list[int] = []
+    if isinstance(profile_value, list):
+        candidates = profile_value
+    elif profile_value not in (None, ""):
+        candidates = re.findall(r"\d{1,3}", str(profile_value))
+    else:
+        candidates = []
+    for candidate in candidates:
+        try:
+            number = int(candidate)
+        except (TypeError, ValueError):
+            continue
+        if 1 <= number <= MAX_HARMONIC_NUMBER and number not in values:
+            values.append(number)
+
+    conversation = oracle_conversation_text(payload)
+    matches = re.findall(
+        r"(?:\bH\s*|\bharmonic\s+|\b)(\d{1,3})(?:st|nd|rd|th)?"
+        r"(?=\s*(?:harmonic|chart|[,/&]|\band\b|$))",
+        conversation,
+        flags=re.IGNORECASE,
+    )
+    for match in matches:
+        number = int(match)
+        if 1 <= number <= MAX_HARMONIC_NUMBER and number not in values:
+            values.append(number)
+    return values
+
+
+def oracle_harmonic_request(
+    payload: OracleChatRequest,
+    bulk: bool,
+) -> tuple[HarmonicChartRequest | HarmonicChartsRequest | None, list[str]]:
+    birth = oracle_birth_values(payload.birth_profile)
+    missing = oracle_missing_birth_values(birth)
+    numbers = oracle_harmonic_numbers(payload)
+    if not bulk and not numbers:
+        missing.append("harmonic_number")
+    if missing:
+        return None, missing
+
+    if not bulk:
+        return (
+            HarmonicChartRequest(
+                birth_year=birth["birth_year"],
+                birth_month=birth["birth_month"],
+                birth_day=birth["birth_day"],
+                birth_hour=birth["birth_hour"],
+                birth_minute=birth["birth_minute"],
+                birthplace=birth["birthplace"],
+                harmonic_number=numbers[0],
+            ),
+            [],
+        )
+
+    return (
+        HarmonicChartsRequest(
+            name=birth["name"] or payload.customer_name,
+            birth_date=date(
+                birth["birth_year"],
+                birth["birth_month"],
+                birth["birth_day"],
+            ),
+            birth_time=f"{birth['birth_hour']:02d}:{birth['birth_minute']:02d}",
+            birth_place=birth["birthplace"],
+            harmonics=numbers or DEFAULT_HARMONIC_NUMBERS,
+        ),
+        [],
+    )
+
+
+def oracle_relationship_birth(
+    source: dict,
+    prefix: str,
+) -> tuple[RelationshipBirthInput | None, list[str]]:
+    birth = oracle_birth_values(source)
+    missing = oracle_missing_birth_values(birth, prefix=f"{prefix}.")
+    if missing:
+        return None, missing
+    return (
+        RelationshipBirthInput(
+            name=birth["name"] or None,
+            birth_date=date(
+                birth["birth_year"],
+                birth["birth_month"],
+                birth["birth_day"],
+            ),
+            birth_time=f"{birth['birth_hour']:02d}:{birth['birth_minute']:02d}",
+            birth_place=birth["birthplace"],
+        ),
+        [],
+    )
+
+
+def oracle_selected_saved_person(payload: OracleChatRequest) -> dict | None:
+    if not payload.saved_people:
+        return None
+    conversation = oracle_conversation_text(payload).casefold()
+    named_matches = [
+        person
+        for person in payload.saved_people
+        if str(oracle_first_value(person, "name") or "").strip().casefold()
+        and str(oracle_first_value(person, "name") or "").strip().casefold()
+        in conversation
+    ]
+    if named_matches:
+        return named_matches[-1]
+    return payload.saved_people[0] if len(payload.saved_people) == 1 else None
+
+
+def oracle_relationship_request(
+    payload: OracleChatRequest,
+) -> tuple[RelationshipChartRequest | None, list[str]]:
+    person_a, missing_a = oracle_relationship_birth(payload.birth_profile, "your_profile")
+    saved_person = oracle_selected_saved_person(payload)
+    missing = list(missing_a)
+    if saved_person is None:
+        missing.append(
+            "saved_person_name"
+            if payload.saved_people
+            else "saved_person_profile"
+        )
+        return None, missing
+    person_b, missing_b = oracle_relationship_birth(saved_person, "saved_person")
+    missing.extend(missing_b)
+    if missing:
+        return None, missing
+    return RelationshipChartRequest(person_a=person_a, person_b=person_b), []
+
+
+def oracle_natal_request(payload: OracleChatRequest) -> tuple[dict | None, list[str]]:
+    birth = oracle_birth_values(payload.birth_profile)
+    missing = oracle_missing_birth_values(birth)
+    if missing:
+        return None, missing
+    return (
+        {
+            "year": birth["birth_year"],
+            "month": birth["birth_month"],
+            "day": birth["birth_day"],
+            "hour": birth["birth_hour"],
+            "minute": birth["birth_minute"],
+            "birthplace": birth["birthplace"],
+        },
+        [],
+    )
+
+
+def oracle_calculation_request(
+    payload: OracleChatRequest,
+) -> tuple[str | None, object | None, list[str]]:
+    intent = oracle_calculation_intent(payload)
+    if intent is None:
+        return None, None, []
+    if intent == "solar_return":
+        request, missing = solar_return_chat_request(payload)
+    elif intent in {
+        "progressed_chart",
+        "progressed_solar_arc_angles",
+        "progressed_solar_longitude",
+        "solar_arc_directions",
+    }:
+        request, missing = oracle_progression_request(payload)
+    elif intent == "transit_timeline":
+        request, missing = oracle_transit_request(payload)
+    elif intent == "harmonic_chart":
+        request, missing = oracle_harmonic_request(payload, bulk=False)
+    elif intent == "harmonic_charts":
+        request, missing = oracle_harmonic_request(payload, bulk=True)
+    elif intent in {"composite_chart", "davison_chart"}:
+        request, missing = oracle_relationship_request(payload)
+    else:
+        request, missing = oracle_natal_request(payload)
+    return intent, request, missing
+
+
 def oracle_solar_return_year(payload: OracleChatRequest, conversation: str) -> int | None:
     profile = payload.birth_profile
     for field in ("return_year", "solar_return_year"):
@@ -5784,38 +6338,189 @@ def compact_solar_return_for_oracle(result: dict) -> dict:
     }
 
 
+def oracle_json_payload(response) -> dict:
+    if isinstance(response, JSONResponse):
+        return json.loads(response.body.decode("utf-8"))
+    if isinstance(response, BaseModel):
+        return response.model_dump()
+    if isinstance(response, dict):
+        return response
+    raise TypeError(f"Unsupported calculator response: {type(response).__name__}")
+
+
+def oracle_trim_calculation_value(value, depth: int = 0):
+    if depth >= 5:
+        return "[Nested calculation detail omitted.]"
+    if isinstance(value, str):
+        return value[:8000]
+    if isinstance(value, list):
+        limit = 80 if depth <= 1 else 30
+        return [
+            oracle_trim_calculation_value(item, depth + 1)
+            for item in value[:limit]
+        ]
+    if isinstance(value, dict):
+        return {
+            str(key): oracle_trim_calculation_value(item, depth + 1)
+            for key, item in list(value.items())[:80]
+        }
+    return value
+
+
+ORACLE_CALCULATION_RESULT_KEYS = (
+    "message",
+    "chart_type",
+    "method",
+    "settings",
+    "zodiac",
+    "house_system",
+    "birth_data",
+    "calculation_data",
+    "progression_data",
+    "return_year",
+    "exact_return_utc",
+    "exact_return_local",
+    "return_location",
+    "return_location_resolved",
+    "return_location_timezone",
+    "planet",
+    "planets",
+    "start_date",
+    "end_date",
+    "event_count",
+    "events",
+    "transit_to_natal_aspects",
+    "aspect_patterns",
+    "eclipses",
+    "retrograde_regressions",
+    "harmonic_number",
+    "requested_harmonics",
+    "harmonic_charts",
+    "placements",
+    "progressed_planets",
+    "directed_positions",
+    "natal_positions",
+    "houses",
+    "progressed_house_cusps",
+    "angles",
+    "natal_angles",
+    "progressed_angles",
+    "solar_arc_degrees",
+    "solar_arc_value",
+    "natal_sun_longitude",
+    "progressed_sun_longitude",
+    "natal_sun",
+    "progressed_sun",
+    "progressed_asc",
+    "progressed_mc",
+    "ascendant",
+    "ascendant_position",
+    "midheaven",
+    "midheaven_position",
+    "aspects",
+    "warnings",
+    "body_count",
+)
+
+
+def oracle_compact_calculation(intent: str, result: dict) -> dict:
+    compact = {
+        "type": intent,
+        "operation": {
+            "natal_chart": "GET /chart",
+            "solar_return": "POST /calculate_solar_return",
+            "transit_timeline": "POST /calculate_transit_timeline",
+            "progressed_chart": "POST /calculate_progressed_chart",
+            "progressed_solar_arc_angles": (
+                "POST /calculate_progressed_chart_solar_arc_angles"
+            ),
+            "progressed_solar_longitude": (
+                "POST /calculate_progressed_solar_longitude_chart"
+            ),
+            "solar_arc_directions": "POST /calculate_solar_arc_directions",
+            "harmonic_chart": "POST /calculate_harmonic_chart",
+            "harmonic_charts": "POST /api/charts/harmonic",
+            "composite_chart": "POST /api/charts/composite",
+            "davison_chart": "POST /api/charts/davison",
+        }[intent],
+        "status": "verified",
+        "source": "Swiss Ephemeris",
+    }
+    for key in ORACLE_CALCULATION_RESULT_KEYS:
+        if key in result:
+            compact[key] = oracle_trim_calculation_value(result[key])
+    return compact
+
+
+def oracle_calculation_succeeded(intent: str, result: dict) -> bool:
+    if result.get("success") is False or result.get("status") == "error":
+        return False
+    verification_keys = {
+        "natal_chart": ("verified_chart_data",),
+        "solar_return": ("verified_solar_return",),
+        "transit_timeline": ("verified_transit_timeline",),
+        "progressed_chart": ("verified_progressed_chart",),
+        "progressed_solar_arc_angles": ("verified_progressed_chart",),
+        "progressed_solar_longitude": ("verified_progressed_chart",),
+        "solar_arc_directions": ("verified_solar_arc_directions",),
+        "harmonic_chart": ("verified_harmonic_chart",),
+        "composite_chart": ("verified_composite_chart",),
+        "davison_chart": ("verified_davison_chart",),
+    }
+    keys = verification_keys.get(intent, ())
+    return all(result.get(key) is True for key in keys)
+
+
+def oracle_run_calculation(intent: str, request):
+    calculators = {
+        "solar_return": calculate_solar_return,
+        "transit_timeline": calculate_transit_timeline,
+        "progressed_chart": calculate_progressed_chart,
+        "progressed_solar_arc_angles": calculate_progressed_chart_solar_arc_angles,
+        "progressed_solar_longitude": calculate_progressed_solar_longitude_chart,
+        "solar_arc_directions": calculate_solar_arc_directions,
+        "harmonic_chart": calculate_harmonic_chart,
+        "harmonic_charts": calculate_harmonic_charts,
+        "composite_chart": calculate_composite_chart,
+        "davison_chart": calculate_davison_chart,
+    }
+    if intent == "natal_chart":
+        return calculate_chart(**request)
+    return calculators[intent](request)
+
+
 def oracle_verified_calculation(payload: OracleChatRequest) -> dict | None:
-    request, missing = solar_return_chat_request(payload)
-    if request is None and not missing:
+    intent, request, missing = oracle_calculation_request(payload)
+    if intent is None:
         return None
     if missing:
         return {
-            "type": "solar_return",
+            "type": intent,
             "status": "missing_inputs",
             "source": "Swiss Ephemeris",
             "missing": missing,
         }
 
     try:
-        response = calculate_solar_return(request)
-        result = json.loads(response.body.decode("utf-8"))
+        result = oracle_json_payload(oracle_run_calculation(intent, request))
     except Exception as error:
-        logger.exception("oracle solar return calculation failed error=%s", error)
+        logger.exception("oracle calculation failed intent=%s error=%s", intent, error)
+        message = error.detail if isinstance(error, HTTPException) else str(error)
         return {
-            "type": "solar_return",
+            "type": intent,
             "status": "calculation_unavailable",
             "source": "Swiss Ephemeris",
-            "message": str(error),
+            "message": str(message),
         }
 
-    if not result.get("success") or not result.get("verified_solar_return"):
+    if not oracle_calculation_succeeded(intent, result):
         return {
-            "type": "solar_return",
+            "type": intent,
             "status": "calculation_failed",
             "source": "Swiss Ephemeris",
-            "message": result.get("message") or "Exact Solar Return could not be verified.",
+            "message": result.get("message") or f"{intent} could not be verified.",
         }
-    return compact_solar_return_for_oracle(result)
+    return oracle_compact_calculation(intent, result)
 
 
 def oracle_context_payload(
