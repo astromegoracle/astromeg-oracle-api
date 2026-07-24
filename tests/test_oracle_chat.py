@@ -45,6 +45,8 @@ class OracleChatTests(unittest.TestCase):
         self.assertTrue(result["valid"])
         self.assertEqual(result["status"], "DEMO")
         self.assertEqual(result["permission_level"], "DEMO")
+        self.assertIn("expiration_date", result)
+        self.assertIsNone(result["expiration_date"])
 
     def test_email_account_can_be_validated_from_rows(self):
         rows = [

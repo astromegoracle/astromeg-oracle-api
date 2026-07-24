@@ -122,6 +122,7 @@ class AccessCodeValidationTests(unittest.TestCase):
         payload = json.loads(response.body)
         self.assertTrue(payload["valid"])
         self.assertEqual(payload["customer_name"], "Meg Founder")
+        self.assertEqual(payload["expiration_date"], "2099-05-31")
 
     def test_public_access_code_sign_in_rejects_invalid_code(self):
         app.fetch_access_sheet_rows = self.rows

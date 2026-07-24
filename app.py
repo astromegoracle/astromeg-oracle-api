@@ -5649,12 +5649,11 @@ def load_oracle_prompt() -> str:
 
 
 def demo_access_result() -> dict:
-    expiration = oracle_now().date() + timedelta(days=3)
     return access_response(
         True,
         "DEMO",
         "Demo access confirmed.",
-        expiration_date=expiration.isoformat(),
+        expiration_date=None,
         permission_level="DEMO",
         reading_type="DEMO",
         include_null_fields=True,
