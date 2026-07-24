@@ -1,3 +1,4 @@
+from calendar import monthrange
 from datetime import date, datetime, timedelta, timezone
 import csv
 import hmac
@@ -5742,7 +5743,11 @@ def validate_oracle_chat_access(payload: OracleChatRequest) -> dict:
 
 
 def oracle_conversation_text(payload: OracleChatRequest) -> str:
-    messages = [message.content.strip() for message in payload.history if message.content.strip()]
+    messages = [
+        message.content.strip()
+        for message in payload.history
+        if message.role.strip().casefold() == "user" and message.content.strip()
+    ]
     messages.append(payload.question.strip())
     return "\n".join(messages)
 
@@ -5890,6 +5895,68 @@ def oracle_current_date() -> date:
     return oracle_now().date()
 
 
+ORACLE_RELATIVE_NUMBER_WORDS = {
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+    "eleven": 11,
+    "twelve": 12,
+}
+
+
+def oracle_add_calendar_months(start_date: date, months: int) -> date:
+    month_index = start_date.month - 1 + months
+    year = start_date.year + month_index // 12
+    month = month_index % 12 + 1
+    day = min(start_date.day, monthrange(year, month)[1])
+    return date(year, month, day)
+
+
+def oracle_relative_window_end(text: str, start_date: date) -> date | None:
+    number_words = "|".join(ORACLE_RELATIVE_NUMBER_WORDS)
+    match = re.search(
+        rf"\b(?:next|for|over|during)\s+"
+        rf"(?P<count>\d{{1,3}}|{number_words})\s+"
+        r"(?P<unit>days?|weeks?|months?|years?)\b",
+        str(text or ""),
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return None
+
+    raw_count = match.group("count").casefold()
+    count = (
+        int(raw_count)
+        if raw_count.isdigit()
+        else ORACLE_RELATIVE_NUMBER_WORDS.get(raw_count, 0)
+    )
+    unit = match.group("unit").casefold()
+    maximums = {
+        "day": 730,
+        "week": 104,
+        "month": 24,
+        "year": 2,
+    }
+    unit_key = next(key for key in maximums if unit.startswith(key))
+    if count <= 0 or count > maximums[unit_key]:
+        return None
+
+    if unit_key == "day":
+        return start_date + timedelta(days=count)
+    if unit_key == "week":
+        return start_date + timedelta(weeks=count)
+    if unit_key == "month":
+        return oracle_add_calendar_months(start_date, count)
+    return oracle_add_calendar_months(start_date, count * 12)
+
+
 def oracle_calculation_intent(payload: OracleChatRequest) -> str | None:
     conversation = oracle_conversation_text(payload).casefold()
     intent_patterns = (
@@ -5962,6 +6029,14 @@ def oracle_calculation_intent(payload: OracleChatRequest) -> str | None:
     for intent, patterns in intent_patterns:
         if any(re.search(pattern, conversation) for pattern in patterns):
             return intent
+    if (
+        str(payload.chat_mode or "").strip().casefold() == "timing"
+        and re.search(
+            r"\b(?:current|today|now|next|transit|timeline|days?|weeks?|months?|years?)\b",
+            conversation,
+        )
+    ):
+        return "transit_timeline"
     return None
 
 
@@ -6082,7 +6157,10 @@ def oracle_transit_request(
     if start_date is None:
         start_date = oracle_current_date()
     if end_date is None:
-        end_date = start_date + timedelta(days=180)
+        end_date = (
+            oracle_relative_window_end(conversation, start_date)
+            or start_date + timedelta(days=180)
+        )
 
     planets = oracle_transit_planets(payload, conversation)
     if not planets:

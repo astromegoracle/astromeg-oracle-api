@@ -358,6 +358,46 @@ class OracleChatTests(unittest.TestCase):
         self.assertEqual(request.timezone, "Asia/Manila")
         self.assertEqual(request.planet, "all")
 
+    def test_transit_window_ignores_assistant_dates_and_uses_user_relative_range(self):
+        original_now = app.oracle_now
+        app.oracle_now = lambda: datetime(2026, 7, 24, 19, 0, tzinfo=MANILA)
+        try:
+            payload = app.OracleChatRequest(
+                question="Use the next three months.",
+                access_code="DEMO888",
+                history=[
+                    app.OracleChatMessage(
+                        role="user",
+                        content="Calculate my transit timeline.",
+                    ),
+                    app.OracleChatMessage(
+                        role="assistant",
+                        content=(
+                            "I will start from April 27, 2024 and end July 27, 2024. "
+                            "Which planets should I include?"
+                        ),
+                    ),
+                ],
+            )
+            request, missing = app.oracle_transit_request(payload)
+        finally:
+            app.oracle_now = original_now
+
+        self.assertEqual(missing, [])
+        self.assertEqual(request.start_date, date(2026, 7, 24))
+        self.assertEqual(request.end_date, date(2026, 10, 24))
+        self.assertEqual(request.timezone, "Asia/Manila")
+        self.assertEqual(request.planet, "all")
+
+    def test_timing_mode_routes_relative_window_to_transit_calculator(self):
+        payload = app.OracleChatRequest(
+            question="Use the next three months.",
+            chat_mode="timing",
+            access_code="DEMO888",
+        )
+
+        self.assertEqual(app.oracle_calculation_intent(payload), "transit_timeline")
+
     def test_verified_calculation_denial_is_rejected_and_regenerated(self):
         original_calculation = app.oracle_verified_calculation
         original_request = app.request_openai_oracle_answer
