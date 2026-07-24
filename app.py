@@ -6565,6 +6565,7 @@ def oracle_user_input(
     payload: OracleChatRequest,
     access_result: dict,
     verified_calculation: dict | None = None,
+    correction_required: bool = False,
 ) -> str:
     context_text = json.dumps(
         oracle_context_payload(payload, access_result, verified_calculation),
@@ -6576,13 +6577,84 @@ def oracle_user_input(
             context_text[:ORACLE_CHAT_MAX_CONTEXT_CHARS]
             + "\n[Context truncated at the app safety limit.]"
         )
+    correction = (
+        "CORRECTION REQUIRED: A previous draft incorrectly denied access to chart data. "
+        "The verified_calculation below has already succeeded. Discard that denial and write "
+        "the complete, in-depth Astromeg reading now, using every relevant exact value. "
+        "Do not say that any verified value is unavailable, not loaded, pending, or still needed.\n\n"
+        if correction_required
+        else ""
+    )
     return (
-        "Use the following Astromeg Oracle app context. "
+        correction
+        + "Use the following Astromeg Oracle app context. "
         "When verified_calculation.status is verified, treat its Swiss Ephemeris values as authoritative "
-        "and answer with the exact requested placements, degrees, houses, angles, and timing. "
+        "and immediately answer with the exact requested placements, degrees, houses, angles, and timing. "
+        "Never claim verified data is unavailable, not loaded, pending, or still needs to be calculated. "
         "When its status is missing_inputs, ask only for those missing fields. "
         "If exact chart data is missing, ask for the missing birth details instead of inventing placements.\n\n"
         f"{context_text}"
+    )
+
+
+VERIFIED_CALCULATION_DENIAL_PATTERNS = (
+    r"\bi (?:do not|don't) have (?:the )?(?:precise|exact|calculated|solar return|chart)",
+    r"\b(?:chart|placement|calculation|return|ephemeris) data (?:is|are) not (?:available|loaded|ready)",
+    r"\b(?:not|isn't|aren't) (?:currently )?(?:available|loaded|connected|ready)\b",
+    r"\bonce (?:that|the) data (?:is|are) available\b",
+    r"\bas soon as (?:the )?(?:placements|chart|data|calculation) (?:is|are) ready\b",
+    r"\b(?:cannot|can't|unable to) (?:access|retrieve|pull|calculate) (?:the )?(?:chart|placements|data|return)",
+)
+
+
+def oracle_answer_denies_verified_calculation(answer: str) -> bool:
+    text = str(answer or "").casefold()
+    return any(re.search(pattern, text) for pattern in VERIFIED_CALCULATION_DENIAL_PATTERNS)
+
+
+def verified_calculation_fallback_answer(calculation: dict) -> str:
+    rows = []
+    for placement in calculation.get("placements", [])[:30]:
+        if not isinstance(placement, dict):
+            continue
+        planet = placement.get("body") or placement.get("planet") or placement.get("name")
+        sign = placement.get("sign") or ""
+        degree = (
+            placement.get("degree")
+            if placement.get("degree") is not None
+            else placement.get("degree_in_sign")
+        )
+        house = placement.get("house")
+        if not planet:
+            continue
+        degree_text = f"{degree}°" if degree not in (None, "") else "—"
+        house_text = str(house) if house not in (None, "") else "—"
+        rows.append(f"| {planet} | {sign or '—'} | {degree_text} | {house_text} |")
+
+    exact_time = (
+        calculation.get("exact_return_local")
+        or calculation.get("exact_return_utc")
+        or ""
+    )
+    opening = (
+        "## Your verified chart is ready\n\n"
+        "The exact Swiss Ephemeris calculation completed successfully. "
+        "Here is the verified technical chart, with no estimates or invented placements."
+    )
+    if exact_time:
+        opening += f"\n\n**Exact chart time:** {exact_time}"
+    table = ""
+    if rows:
+        table = (
+            "\n\n| Planet | Sign | Degree | House |\n"
+            "|---|---|---|---|\n"
+            + "\n".join(rows)
+        )
+    return (
+        opening
+        + table
+        + "\n\nYour exact data is secure. Please send the same question once more so I can continue "
+        "with the full warm, in-depth Astromeg interpretation and action plan."
     )
 
 
@@ -6608,6 +6680,7 @@ def request_openai_oracle_answer(
     payload: OracleChatRequest,
     access_result: dict,
     verified_calculation: dict | None = None,
+    correction_required: bool = False,
 ) -> str:
     api_key = os.environ.get("OPENAI_API_KEY", "").strip()
     if not api_key:
@@ -6622,7 +6695,12 @@ def request_openai_oracle_answer(
                 "content": [
                     {
                         "type": "input_text",
-                        "text": oracle_user_input(payload, access_result, verified_calculation),
+                        "text": oracle_user_input(
+                            payload,
+                            access_result,
+                            verified_calculation,
+                            correction_required=correction_required,
+                        ),
                     }
                 ],
             }
@@ -6756,6 +6834,27 @@ def chat_with_astromeg_oracle(payload: OracleChatRequest):
     try:
         verified_calculation = oracle_verified_calculation(payload)
         answer = request_openai_oracle_answer(payload, access_result, verified_calculation)
+        if (
+            verified_calculation
+            and verified_calculation.get("status") == "verified"
+            and oracle_answer_denies_verified_calculation(answer)
+        ):
+            logger.warning(
+                "oracle rejected denial after verified calculation type=%s",
+                verified_calculation.get("type"),
+            )
+            answer = request_openai_oracle_answer(
+                payload,
+                access_result,
+                verified_calculation,
+                correction_required=True,
+            )
+            if oracle_answer_denies_verified_calculation(answer):
+                logger.error(
+                    "oracle correction still denied verified calculation type=%s",
+                    verified_calculation.get("type"),
+                )
+                answer = verified_calculation_fallback_answer(verified_calculation)
     except RuntimeError as error:
         logger.warning("oracle chat runtime unavailable status=%s error=%s", access_result.get("status"), error)
         return json_response(

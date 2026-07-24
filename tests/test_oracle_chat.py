@@ -317,6 +317,59 @@ class OracleChatTests(unittest.TestCase):
         self.assertIn("transit_end_date", calculation["missing"])
         self.assertIn("transit_planet_or_all_planets", calculation["missing"])
 
+    def test_verified_calculation_denial_is_rejected_and_regenerated(self):
+        original_calculation = app.oracle_verified_calculation
+        original_request = app.request_openai_oracle_answer
+        correction_flags = []
+
+        app.oracle_verified_calculation = lambda _payload: {
+            "type": "solar_return",
+            "status": "verified",
+            "source": "Swiss Ephemeris",
+            "placements": [{"body": "Sun", "sign": "Leo", "degree": 8.25, "house": 6}],
+        }
+
+        def fake_request(_payload, _access, _calculation=None, correction_required=False):
+            correction_flags.append(correction_required)
+            if not correction_required:
+                return "Currently, I don't have the precise Solar Return chart data loaded here."
+            return "## Your Solar Return\n\nYour exact verified Sun is 8.25° Leo in the 6th house."
+
+        app.request_openai_oracle_answer = fake_request
+        try:
+            result = app.chat_with_astromeg_oracle(
+                app.OracleChatRequest(
+                    question="Give me my exact Solar Return placements.",
+                    access_code="DEMO888",
+                )
+            )
+        finally:
+            app.oracle_verified_calculation = original_calculation
+            app.request_openai_oracle_answer = original_request
+
+        self.assertTrue(result["success"])
+        self.assertEqual(correction_flags, [False, True])
+        self.assertIn("8.25° Leo", result["answer"])
+        self.assertNotIn("don't have", result["answer"].casefold())
+
+    def test_verified_calculation_prompt_forbids_unavailable_claims(self):
+        payload = app.OracleChatRequest(
+            question="List my exact Solar Return placements.",
+            access_code="DEMO888",
+        )
+        prompt = app.oracle_user_input(
+            payload,
+            app.demo_access_result(),
+            {
+                "type": "solar_return",
+                "status": "verified",
+                "placements": [{"body": "Sun", "sign": "Leo", "degree": 8.25, "house": 6}],
+            },
+        )
+
+        self.assertIn("authoritative", prompt)
+        self.assertIn("Never claim verified data is unavailable", prompt)
+
     def test_relationship_chart_requires_named_person_when_several_are_saved(self):
         payload = app.OracleChatRequest(
             question="Calculate a composite chart.",
