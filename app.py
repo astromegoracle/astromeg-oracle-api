@@ -18,6 +18,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
 from pydantic import BaseModel, Field, StrictInt
@@ -38,6 +39,15 @@ RETRY_DELAY_SECONDS = 0.25
 ACCESS_VALIDATION_TIMEOUT_SECONDS = float(os.environ.get("ORACLE_ACCESS_VALIDATION_TIMEOUT_SECONDS", "2.5"))
 ACCESS_VALIDATION_ATTEMPTS = int(os.environ.get("ORACLE_ACCESS_VALIDATION_ATTEMPTS", "1"))
 ACCESS_VALIDATION_RETRY_DELAY_SECONDS = float(os.environ.get("ORACLE_ACCESS_VALIDATION_RETRY_DELAY_SECONDS", "0.25"))
+ACCOUNT_VALIDATION_TIMEOUT_SECONDS = float(os.environ.get("ORACLE_ACCOUNT_VALIDATION_TIMEOUT_SECONDS", "2.5"))
+ACCOUNT_VALIDATION_ATTEMPTS = int(os.environ.get("ORACLE_ACCOUNT_VALIDATION_ATTEMPTS", "1"))
+ACCOUNT_VALIDATION_RETRY_DELAY_SECONDS = float(os.environ.get("ORACLE_ACCOUNT_VALIDATION_RETRY_DELAY_SECONDS", "0.25"))
+ORACLE_CHAT_TIMEOUT_SECONDS = float(os.environ.get("ORACLE_CHAT_TIMEOUT_SECONDS", "35"))
+ORACLE_CHAT_MAX_OUTPUT_TOKENS = int(os.environ.get("ORACLE_CHAT_MAX_OUTPUT_TOKENS", "1200"))
+ORACLE_CHAT_MAX_CONTEXT_CHARS = int(os.environ.get("ORACLE_CHAT_MAX_CONTEXT_CHARS", "60000"))
+ORACLE_PROMPT_FILE = os.environ.get("ORACLE_PROMPT_FILE", "").strip()
+OPENAI_API_URL = os.environ.get("OPENAI_API_URL", "https://api.openai.com/v1/responses").strip()
+OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4.1-mini").strip()
 HOUSE_SYSTEM = "Placidus"
 ZODIAC = "Tropical"
 HOUSE_SYSTEM_CODES = {
@@ -361,6 +371,35 @@ class AccessCodeValidationResponse(BaseModel):
     expiration_date: str | None = None
     permission_level: str | None = None
     reading_type: str | None = None
+
+
+class OracleChatMessage(BaseModel):
+    role: str = Field(default="user", max_length=16)
+    content: str = Field(max_length=3000)
+
+
+class OracleChatRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=4000)
+    chat_mode: Optional[str] = Field(default=None, max_length=64)
+    email: Optional[str] = Field(default=None, max_length=320)
+    customer_name: Optional[str] = Field(default=None, max_length=160)
+    access_code: Optional[str] = Field(default=None, max_length=160)
+    birth_profile: dict = Field(default_factory=dict)
+    chart: dict = Field(default_factory=dict)
+    transits: dict = Field(default_factory=dict)
+    saved_people: list[dict] = Field(default_factory=list)
+    history: list[OracleChatMessage] = Field(default_factory=list)
+
+
+class OracleChatResponse(BaseModel):
+    success: bool
+    status: str
+    answer: str
+    message: str | None = None
+    reading_type: str | None = None
+    permission_level: str | None = None
+    expiration_date: str | None = None
+    model: str | None = None
 
 
 CHART_SUCCESS_SCHEMA = {
@@ -2778,6 +2817,10 @@ def normalize_access_code(value: str) -> str:
     return " ".join(value.strip().split()).casefold()
 
 
+def normalize_email(value: str | None) -> str:
+    return str(value or "").strip().casefold()
+
+
 def normalize_sheet_header(value: str) -> str:
     return "".join(character for character in value.casefold() if character.isalnum())
 
@@ -3062,6 +3105,72 @@ def validate_access_code_from_rows(
     return access_response(False, "INVALID", "Invalid access code.")
 
 
+def validate_account_email_from_rows(
+    email: str,
+    rows: list[list[object]],
+    now: datetime | None = None,
+) -> dict:
+    submitted_email = normalize_email(email)
+    current_time = now or datetime.now(ZoneInfo(MANILA_TIMEZONE))
+    today = current_time.date()
+
+    if not submitted_email:
+        return access_response(False, "INVALID_EMAIL", "Enter the email used at checkout.")
+
+    for record in sheet_rows_to_records(rows):
+        if normalize_email(record.get("email")) != submitted_email:
+            continue
+
+        expiration = parse_expiration_date(record.get("expiration_date", ""))
+        expiration_iso = expiration.isoformat() if expiration else None
+        status = record.get("status", "").strip().upper()
+
+        if expiration is not None and expiration < today:
+            return access_response(
+                False,
+                "EXPIRED",
+                "This Oracle access has expired.",
+                email=record.get("email") or submitted_email,
+                expiration_date=expiration_iso,
+            )
+
+        if status not in VALID_ACCESS_STATUSES:
+            return access_response(
+                False,
+                "INACTIVE",
+                "No active Oracle plan was found for this email.",
+                email=record.get("email") or submitted_email,
+                expiration_date=expiration_iso,
+            )
+
+        if expiration is None:
+            return access_response(
+                False,
+                "INVALID_ACCOUNT",
+                "This account is missing an expiration date.",
+                email=record.get("email") or submitted_email,
+            )
+
+        return access_response(
+            True,
+            status,
+            "Access confirmed.",
+            customer_name=record.get("customer_name") or None,
+            email=record.get("email") or submitted_email,
+            expiration_date=expiration_iso,
+            permission_level=record.get("permission_level") or "VIP",
+            reading_type=record.get("reading_type") or "30DAY",
+            include_null_fields=True,
+        )
+
+    return access_response(
+        False,
+        "ACCOUNT_NOT_FOUND",
+        "No active Oracle plan was found for this email.",
+        email=submitted_email,
+    )
+
+
 def fetch_access_sheet_csv_rows(csv_url: str) -> list[list[object]]:
     request = UrlRequest(csv_url, headers={"User-Agent": USER_AGENT})
     with urlopen(request, timeout=GEOCODE_TIMEOUT_SECONDS) as response:
@@ -3225,6 +3334,65 @@ def validate_access_code_with_external_service(access_code: str) -> dict | None:
         expiration_date=str(expiration_date).strip() if expiration_date else None,
         permission_level=str(permission_level).strip() if permission_level else None,
         reading_type=str(reading_type).strip() if reading_type else None,
+        include_null_fields=valid,
+    )
+
+
+def validate_account_email_with_external_service(email: str) -> dict | None:
+    validation_url = os.environ.get("ORACLE_ACCOUNT_VALIDATION_URL", "").strip()
+    if not validation_url:
+        return None
+
+    validation_secret = os.environ.get("ORACLE_ACCOUNT_VALIDATION_SECRET", "").strip()
+    request_body = json.dumps({"email": email, "secret": validation_secret}).encode("utf-8")
+    request = UrlRequest(
+        validation_url,
+        data=request_body,
+        headers={
+            "Content-Type": "application/json",
+            "User-Agent": USER_AGENT,
+        },
+        method="POST",
+    )
+    result = None
+    last_error = None
+    for attempt in range(ACCOUNT_VALIDATION_ATTEMPTS):
+        try:
+            with urlopen(request, timeout=ACCOUNT_VALIDATION_TIMEOUT_SECONDS) as response:
+                result = json.load(response)
+            break
+        except (OSError, URLError, TimeoutError, json.JSONDecodeError) as error:
+            last_error = error
+            logger.warning("external account validation failed attempt=%s error=%s", attempt + 1, error)
+            if attempt < ACCOUNT_VALIDATION_ATTEMPTS - 1:
+                time.sleep(ACCOUNT_VALIDATION_RETRY_DELAY_SECONDS)
+
+    if result is None:
+        raise RuntimeError(f"External account validation unavailable: {last_error}")
+    if not isinstance(result, dict):
+        raise RuntimeError("External account validation returned malformed JSON.")
+
+    valid = bool(result.get("valid") or result.get("active"))
+    status = str(result.get("status") or ("ACTIVE" if valid else "ACCOUNT_NOT_FOUND")).strip().upper()
+    message = str(
+        result.get("message")
+        or ("Access confirmed." if valid else "No active Oracle plan was found for this email.")
+    ).strip()
+    expiration_date = result.get("expiration_date") or result.get("expires_on") or result.get("expires")
+    permission_level = result.get("permission_level") or result.get("permission")
+    reading_type = result.get("reading_type") or result.get("type")
+    customer_name = result.get("customer_name") or result.get("name")
+    response_email = result.get("email") or email
+
+    return access_response(
+        valid,
+        status,
+        message,
+        expiration_date=str(expiration_date).strip() if expiration_date else None,
+        permission_level=str(permission_level).strip() if permission_level else None,
+        reading_type=str(reading_type).strip() if reading_type else None,
+        customer_name=str(customer_name).strip() if customer_name else None,
+        email=str(response_email).strip() if response_email else None,
         include_null_fields=valid,
     )
 
@@ -5005,6 +5173,26 @@ app = FastAPI(
     openapi_version="3.1.0",
 )
 
+allowed_origins = [
+    origin.strip()
+    for origin in os.environ.get(
+        "ORACLE_ALLOWED_ORIGINS",
+        "http://127.0.0.1:4187,http://localhost:4187,https://app.astromeg.me,https://astromeg.me,https://www.astromeg.me",
+    ).split(",")
+    if origin.strip()
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_origin_regex=(
+        r"^http://(localhost|127\.0\.0\.1|192\.168\.\d{1,3}\.\d{1,3}):\d+$"
+        r"|^https://[a-z0-9-]+\.netlify\.app$"
+    ),
+    allow_credentials=False,
+    allow_methods=["POST", "OPTIONS"],
+    allow_headers=["Content-Type"],
+)
+
 
 def custom_openapi():
     if app.openapi_schema:
@@ -5399,6 +5587,187 @@ def authorized_backend_request(request: Request) -> bool:
     return hmac.compare_digest(supplied_token, expected_token)
 
 
+def oracle_prompt_paths() -> list[Path]:
+    paths: list[Path] = []
+    if ORACLE_PROMPT_FILE:
+        paths.append(Path(ORACLE_PROMPT_FILE))
+    paths.append(Path("/etc/secrets/astromeg_oracle_prompt.md"))
+    paths.append(BASE_DIR / "astromeg_oracle_prompt.md")
+    return paths
+
+
+def load_oracle_prompt() -> str:
+    for prompt_path in oracle_prompt_paths():
+        try:
+            if prompt_path.is_file():
+                return prompt_path.read_text(encoding="utf-8").strip()
+        except OSError as error:
+            logger.warning("oracle prompt read failed path=%s error=%s", prompt_path, error)
+
+    return (
+        "You are Astromeg Oracle, a warm, precise astrology guide. "
+        "Answer with grounded, empowering language and ask for missing birth details "
+        "when exact chart data is unavailable."
+    )
+
+
+def demo_access_result() -> dict:
+    expiration = datetime.now(ZoneInfo(MANILA_TIMEZONE)).date() + timedelta(days=3)
+    return access_response(
+        True,
+        "DEMO",
+        "Demo access confirmed.",
+        expiration_date=expiration.isoformat(),
+        permission_level="DEMO",
+        reading_type="DEMO",
+        include_null_fields=True,
+    )
+
+
+def validate_account_email(email: str) -> dict:
+    external_result = validate_account_email_with_external_service(email)
+    if external_result is not None:
+        return external_result
+    return validate_account_email_from_rows(email, fetch_access_sheet_rows())
+
+
+def validate_oracle_chat_access(payload: OracleChatRequest) -> dict:
+    access_code = str(payload.access_code or "").strip()
+    if normalize_access_code(access_code) == "demo888":
+        return demo_access_result()
+
+    if access_code:
+        cached_result = get_cached_access_response(access_code)
+        if cached_result is not None:
+            return cached_result
+
+        try:
+            external_result = validate_access_code_with_external_service(access_code)
+        except Exception as error:
+            logger.warning("oracle chat external access validation failed error=%s", error)
+            external_result = None
+
+        result = external_result or validate_access_code_from_rows(access_code, fetch_access_sheet_rows())
+        cache_access_response(access_code, result)
+        return result
+
+    email = normalize_email(payload.email)
+    if email:
+        return validate_account_email(email)
+
+    return access_response(False, "ACCESS_REQUIRED", "Sign in or enter an active Oracle access code.")
+
+
+def oracle_context_payload(payload: OracleChatRequest, access_result: dict) -> dict:
+    safe_history = []
+    for message in payload.history[-8:]:
+        content = message.content.strip()
+        if not content:
+            continue
+        role = message.role.strip().casefold()
+        safe_history.append(
+            {
+                "role": role if role in {"user", "assistant"} else "user",
+                "content": content[:3000],
+            }
+        )
+
+    return {
+        "question": payload.question.strip(),
+        "chat_mode": payload.chat_mode,
+        "account": {
+            "email": access_result.get("email") or payload.email,
+            "customer_name": access_result.get("customer_name") or payload.customer_name,
+            "status": access_result.get("status"),
+            "expiration_date": access_result.get("expiration_date"),
+            "permission_level": access_result.get("permission_level"),
+            "reading_type": access_result.get("reading_type"),
+        },
+        "birth_profile": payload.birth_profile,
+        "chart": payload.chart,
+        "transits": payload.transits,
+        "saved_people": payload.saved_people[:6],
+        "recent_history": safe_history,
+    }
+
+
+def oracle_user_input(payload: OracleChatRequest, access_result: dict) -> str:
+    context_text = json.dumps(
+        oracle_context_payload(payload, access_result),
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    if len(context_text) > ORACLE_CHAT_MAX_CONTEXT_CHARS:
+        context_text = (
+            context_text[:ORACLE_CHAT_MAX_CONTEXT_CHARS]
+            + "\n[Context truncated at the app safety limit.]"
+        )
+    return (
+        "Use the following Astromeg Oracle app context. "
+        "If exact chart data is missing, ask for the missing birth details instead of inventing placements.\n\n"
+        f"{context_text}"
+    )
+
+
+def extract_openai_text(response_payload: dict) -> str:
+    output_text = response_payload.get("output_text")
+    if isinstance(output_text, str) and output_text.strip():
+        return output_text.strip()
+
+    text_chunks: list[str] = []
+    for output_item in response_payload.get("output", []) or []:
+        if not isinstance(output_item, dict):
+            continue
+        for content_item in output_item.get("content", []) or []:
+            if not isinstance(content_item, dict):
+                continue
+            text_value = content_item.get("text")
+            if isinstance(text_value, str) and text_value.strip():
+                text_chunks.append(text_value.strip())
+    return "\n\n".join(text_chunks).strip()
+
+
+def request_openai_oracle_answer(payload: OracleChatRequest, access_result: dict) -> str:
+    api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY is not configured.")
+
+    request_body = {
+        "model": OPENAI_MODEL,
+        "instructions": load_oracle_prompt(),
+        "input": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": oracle_user_input(payload, access_result),
+                    }
+                ],
+            }
+        ],
+        "max_output_tokens": ORACLE_CHAT_MAX_OUTPUT_TOKENS,
+        "store": False,
+    }
+    openai_request = UrlRequest(
+        OPENAI_API_URL,
+        data=json.dumps(request_body).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "User-Agent": USER_AGENT,
+        },
+        method="POST",
+    )
+    with urlopen(openai_request, timeout=ORACLE_CHAT_TIMEOUT_SECONDS) as response:
+        response_payload = json.load(response)
+
+    answer = extract_openai_text(response_payload)
+    if not answer:
+        raise RuntimeError("OpenAI returned an empty Oracle answer.")
+    return answer
+
+
 @app.exception_handler(HTTPException)
 async def http_exception_handler(_request: Request, exc: HTTPException):
     logger.warning("request error status=%s detail=%s", exc.status_code, exc.detail)
@@ -5456,6 +5825,99 @@ def robots_txt():
 @app.get("/favicon.ico", include_in_schema=False)
 def favicon():
     return Response(content=b"", media_type="image/x-icon", status_code=200)
+
+
+@app.post(
+    "/oracle/chat",
+    response_model=OracleChatResponse,
+    operation_id="chatWithAstromegOracle",
+    description="Generate an Astromeg Oracle app reading after validating active access.",
+)
+def chat_with_astromeg_oracle(payload: OracleChatRequest):
+    if not payload.question.strip():
+        return json_response(
+            {
+                "success": False,
+                "status": "MISSING_QUESTION",
+                "answer": "Ask your question?",
+                "message": "Question is required.",
+            },
+            status_code=400,
+        )
+
+    try:
+        access_result = validate_oracle_chat_access(payload)
+    except Exception as error:
+        logger.exception("oracle chat access validation unavailable error=%s", error)
+        return json_response(
+            {
+                "success": False,
+                "status": "ACCESS_VALIDATION_UNAVAILABLE",
+                "answer": "Oracle access validation is temporarily unavailable. Please try again shortly.",
+                "message": "Access validation is temporarily unavailable.",
+            },
+            status_code=503,
+        )
+
+    if not access_result.get("valid"):
+        message = str(access_result.get("message") or "Sign in or enter an active Oracle access code.")
+        return json_response(
+            {
+                "success": False,
+                "status": str(access_result.get("status") or "ACCESS_REQUIRED"),
+                "answer": message,
+                "message": message,
+                "expiration_date": access_result.get("expiration_date"),
+            },
+            status_code=403,
+        )
+
+    try:
+        answer = request_openai_oracle_answer(payload, access_result)
+    except RuntimeError as error:
+        logger.warning("oracle chat runtime unavailable status=%s error=%s", access_result.get("status"), error)
+        return json_response(
+            {
+                "success": False,
+                "status": "ORACLE_AI_NOT_CONFIGURED",
+                "answer": (
+                    "Your Oracle access is active. The live Oracle chat still needs its OpenAI connection "
+                    "before I can generate the full reading here."
+                ),
+                "message": str(error),
+                "reading_type": access_result.get("reading_type"),
+                "permission_level": access_result.get("permission_level"),
+                "expiration_date": access_result.get("expiration_date"),
+                "model": OPENAI_MODEL,
+            },
+            status_code=503,
+        )
+    except Exception as error:
+        logger.exception("oracle chat unavailable error=%s", error)
+        return json_response(
+            {
+                "success": False,
+                "status": "ORACLE_AI_UNAVAILABLE",
+                "answer": "The Oracle chat is temporarily unavailable. Please try again in a moment.",
+                "message": "Oracle AI request failed.",
+                "reading_type": access_result.get("reading_type"),
+                "permission_level": access_result.get("permission_level"),
+                "expiration_date": access_result.get("expiration_date"),
+                "model": OPENAI_MODEL,
+            },
+            status_code=502,
+        )
+
+    return {
+        "success": True,
+        "status": str(access_result.get("status") or "ACTIVE"),
+        "answer": answer,
+        "message": "Oracle reading generated.",
+        "reading_type": access_result.get("reading_type"),
+        "permission_level": access_result.get("permission_level"),
+        "expiration_date": access_result.get("expiration_date"),
+        "model": OPENAI_MODEL,
+    }
 
 
 @app.post(
