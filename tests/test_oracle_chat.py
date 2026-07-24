@@ -103,6 +103,91 @@ class OracleChatTests(unittest.TestCase):
         self.assertEqual(captured["body"]["max_output_tokens"], app.ORACLE_CHAT_MAX_OUTPUT_TOKENS)
         self.assertEqual(captured["timeout"], app.ORACLE_CHAT_TIMEOUT_SECONDS)
 
+    def test_solar_return_request_uses_profile_and_recent_chat_details(self):
+        payload = app.OracleChatRequest(
+            question="Give me the exact planets, degrees, and houses.",
+            access_code="DEMO888",
+            birth_profile={
+                "birth_year": 1972,
+                "birth_month": 7,
+                "birth_day": 31,
+                "birth_hour": 22,
+                "birth_minute": 50,
+                "birthplace": "Quezon City, Philippines",
+            },
+            history=[
+                app.OracleChatMessage(
+                    role="user",
+                    content="Calculate my 2026 Solar Return in Quezon City with planets and houses.",
+                )
+            ],
+        )
+
+        request, missing = app.solar_return_chat_request(payload)
+
+        self.assertEqual(missing, [])
+        self.assertIsNotNone(request)
+        self.assertEqual(request.return_year, 2026)
+        self.assertEqual(request.return_location, "Quezon City, Philippines")
+        self.assertEqual(request.birth_year, 1972)
+
+    def test_solar_return_calculation_is_added_to_oracle_context(self):
+        original_calculator = app.calculate_solar_return
+        captured = {}
+
+        def fake_calculator(_request):
+            return app.json_response(
+                {
+                    "success": True,
+                    "verified_solar_return": True,
+                    "verified_chart_data": True,
+                    "exact_return_utc": "2026-07-31T12:00:00Z",
+                    "exact_return_local": "2026-07-31T20:00:00+08:00",
+                    "return_location": "Quezon City",
+                    "return_location_resolved": "Quezon City, Metro Manila, Philippines",
+                    "return_location_timezone": "Asia/Manila",
+                    "natal_sun_longitude": 128.25,
+                    "return_sun_longitude": 128.25,
+                    "longitude_delta_arcseconds": 0.01,
+                    "chart": {
+                        "ascendant_position": {"sign": "Aquarius", "degree": 12.3},
+                        "midheaven_position": {"sign": "Scorpio", "degree": 4.5},
+                    },
+                    "placements": [
+                        {"body": "Sun", "sign": "Leo", "degree": 8.25, "house": 6}
+                    ],
+                    "houses": [
+                        {"house": 1, "sign": "Aquarius", "degree": 12.3}
+                    ],
+                    "aspects": [],
+                }
+            )
+
+        app.calculate_solar_return = fake_calculator
+        try:
+            payload = app.OracleChatRequest(
+                question="Calculate my 2026 Solar Return in Quezon City.",
+                access_code="DEMO888",
+                birth_profile={
+                    "birth_year": 1972,
+                    "birth_month": 7,
+                    "birth_day": 31,
+                    "birth_hour": 22,
+                    "birth_minute": 50,
+                    "birthplace": "Quezon City, Philippines",
+                },
+            )
+            calculation = app.oracle_verified_calculation(payload)
+            context = app.oracle_context_payload(payload, app.demo_access_result(), calculation)
+        finally:
+            app.calculate_solar_return = original_calculator
+
+        captured["calculation"] = context["verified_calculation"]
+        self.assertEqual(captured["calculation"]["status"], "verified")
+        self.assertEqual(captured["calculation"]["source"], "Swiss Ephemeris")
+        self.assertEqual(captured["calculation"]["placements"][0]["degree"], 8.25)
+        self.assertEqual(captured["calculation"]["placements"][0]["house"], 6)
+
     def test_custom_gpt_schema_does_not_expose_app_chat(self):
         schema = app.custom_openapi()
         self.assertNotIn("/oracle/chat", schema["paths"])
@@ -111,7 +196,7 @@ class OracleChatTests(unittest.TestCase):
 
     def test_chat_endpoint_returns_demo_answer(self):
         original_request = app.request_openai_oracle_answer
-        app.request_openai_oracle_answer = lambda payload, access: "A live demo answer."
+        app.request_openai_oracle_answer = lambda payload, access, calculation=None: "A live demo answer."
         try:
             result = app.chat_with_astromeg_oracle(
                 app.OracleChatRequest(question="What is next?", access_code="DEMO888")

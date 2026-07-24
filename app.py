@@ -8,6 +8,7 @@ import logging
 import math
 import os
 from pathlib import Path
+import re
 import time
 from typing import Annotated, Optional
 from urllib.error import URLError
@@ -5658,7 +5659,170 @@ def validate_oracle_chat_access(payload: OracleChatRequest) -> dict:
     return access_response(False, "ACCESS_REQUIRED", "Sign in or enter an active Oracle access code.")
 
 
-def oracle_context_payload(payload: OracleChatRequest, access_result: dict) -> dict:
+def oracle_conversation_text(payload: OracleChatRequest) -> str:
+    messages = [message.content.strip() for message in payload.history if message.content.strip()]
+    messages.append(payload.question.strip())
+    return "\n".join(messages)
+
+
+def oracle_profile_int(profile: dict, field: str) -> int | None:
+    value = profile.get(field)
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def oracle_solar_return_year(payload: OracleChatRequest, conversation: str) -> int | None:
+    profile = payload.birth_profile
+    for field in ("return_year", "solar_return_year"):
+        value = oracle_profile_int(profile, field)
+        if value is not None:
+            return value
+
+    nearby_matches = re.findall(
+        r"solar\s+return[^\n.!?]{0,80}?\b((?:19|20)\d{2})\b",
+        conversation,
+        flags=re.IGNORECASE,
+    )
+    if nearby_matches:
+        return int(nearby_matches[-1])
+
+    current_year = datetime.now(timezone.utc).year
+    plausible_years = [
+        int(value)
+        for value in re.findall(r"\b((?:19|20)\d{2})\b", conversation)
+        if int(value) >= current_year - 1
+    ]
+    return plausible_years[-1] if plausible_years else None
+
+
+def oracle_solar_return_location(payload: OracleChatRequest, conversation: str) -> str:
+    profile = payload.birth_profile
+    for field in ("return_location", "solar_return_location", "birthday_location"):
+        value = str(profile.get(field) or "").strip()
+        if value:
+            return value
+
+    location_matches = re.findall(
+        r"(?:solar\s+return|birthday)[^\n.!?]{0,120}?\b(?:in|at)\s+"
+        r"([A-Za-z][A-Za-z' -]{1,60}?)(?=,|\.|\?|!|\n|$)",
+        conversation,
+        flags=re.IGNORECASE,
+    )
+    if not location_matches:
+        return ""
+
+    location = re.split(
+        r"\b(?:with|including|showing|show|give|and)\b",
+        location_matches[-1],
+        maxsplit=1,
+        flags=re.IGNORECASE,
+    )[0]
+    return location.strip(" ,-")
+
+
+def solar_return_chat_request(payload: OracleChatRequest) -> tuple[SolarReturnRequest | None, list[str]]:
+    conversation = oracle_conversation_text(payload)
+    if not re.search(r"\bsolar\s+return\b", conversation, flags=re.IGNORECASE):
+        return None, []
+
+    profile = payload.birth_profile
+    return_location = oracle_solar_return_location(payload, conversation)
+    if return_location and "," not in return_location:
+        birth_country = str(profile.get("birth_country") or "").strip()
+        if not birth_country:
+            birthplace_parts = [
+                part.strip()
+                for part in str(profile.get("birthplace") or "").split(",")
+                if part.strip()
+            ]
+            birth_country = birthplace_parts[-1] if len(birthplace_parts) > 1 else ""
+        if birth_country:
+            return_location = f"{return_location}, {birth_country}"
+
+    values = {
+        "birth_year": oracle_profile_int(profile, "birth_year"),
+        "birth_month": oracle_profile_int(profile, "birth_month"),
+        "birth_day": oracle_profile_int(profile, "birth_day"),
+        "birth_hour": oracle_profile_int(profile, "birth_hour"),
+        "birth_minute": oracle_profile_int(profile, "birth_minute"),
+        "birthplace": str(profile.get("birthplace") or "").strip(),
+        "return_year": oracle_solar_return_year(payload, conversation),
+        "return_location": return_location,
+    }
+    missing = [field for field, value in values.items() if value is None or value == ""]
+    if missing:
+        return None, missing
+
+    return SolarReturnRequest(**values), []
+
+
+def compact_solar_return_for_oracle(result: dict) -> dict:
+    chart = result.get("chart") if isinstance(result.get("chart"), dict) else {}
+    return {
+        "type": "solar_return",
+        "status": "verified",
+        "source": "Swiss Ephemeris",
+        "verified_solar_return": result.get("verified_solar_return"),
+        "verified_chart_data": result.get("verified_chart_data"),
+        "exact_return_utc": result.get("exact_return_utc"),
+        "exact_return_local": result.get("exact_return_local"),
+        "return_location": result.get("return_location"),
+        "return_location_resolved": result.get("return_location_resolved"),
+        "return_location_timezone": result.get("return_location_timezone"),
+        "natal_sun_longitude": result.get("natal_sun_longitude"),
+        "return_sun_longitude": result.get("return_sun_longitude"),
+        "longitude_delta_arcseconds": result.get("longitude_delta_arcseconds"),
+        "ascendant": chart.get("ascendant_position"),
+        "midheaven": chart.get("midheaven_position"),
+        "placements": result.get("placements") or [],
+        "houses": result.get("houses") or [],
+        "aspects": result.get("aspects") or [],
+    }
+
+
+def oracle_verified_calculation(payload: OracleChatRequest) -> dict | None:
+    request, missing = solar_return_chat_request(payload)
+    if request is None and not missing:
+        return None
+    if missing:
+        return {
+            "type": "solar_return",
+            "status": "missing_inputs",
+            "source": "Swiss Ephemeris",
+            "missing": missing,
+        }
+
+    try:
+        response = calculate_solar_return(request)
+        result = json.loads(response.body.decode("utf-8"))
+    except Exception as error:
+        logger.exception("oracle solar return calculation failed error=%s", error)
+        return {
+            "type": "solar_return",
+            "status": "calculation_unavailable",
+            "source": "Swiss Ephemeris",
+            "message": str(error),
+        }
+
+    if not result.get("success") or not result.get("verified_solar_return"):
+        return {
+            "type": "solar_return",
+            "status": "calculation_failed",
+            "source": "Swiss Ephemeris",
+            "message": result.get("message") or "Exact Solar Return could not be verified.",
+        }
+    return compact_solar_return_for_oracle(result)
+
+
+def oracle_context_payload(
+    payload: OracleChatRequest,
+    access_result: dict,
+    verified_calculation: dict | None = None,
+) -> dict:
     safe_history = []
     for message in payload.history[-8:]:
         content = message.content.strip()
@@ -5686,14 +5850,19 @@ def oracle_context_payload(payload: OracleChatRequest, access_result: dict) -> d
         "birth_profile": payload.birth_profile,
         "chart": payload.chart,
         "transits": payload.transits,
+        "verified_calculation": verified_calculation,
         "saved_people": payload.saved_people[:6],
         "recent_history": safe_history,
     }
 
 
-def oracle_user_input(payload: OracleChatRequest, access_result: dict) -> str:
+def oracle_user_input(
+    payload: OracleChatRequest,
+    access_result: dict,
+    verified_calculation: dict | None = None,
+) -> str:
     context_text = json.dumps(
-        oracle_context_payload(payload, access_result),
+        oracle_context_payload(payload, access_result, verified_calculation),
         ensure_ascii=False,
         separators=(",", ":"),
     )
@@ -5704,6 +5873,9 @@ def oracle_user_input(payload: OracleChatRequest, access_result: dict) -> str:
         )
     return (
         "Use the following Astromeg Oracle app context. "
+        "When verified_calculation.status is verified, treat its Swiss Ephemeris values as authoritative "
+        "and answer with the exact requested placements, degrees, houses, angles, and timing. "
+        "When its status is missing_inputs, ask only for those missing fields. "
         "If exact chart data is missing, ask for the missing birth details instead of inventing placements.\n\n"
         f"{context_text}"
     )
@@ -5727,7 +5899,11 @@ def extract_openai_text(response_payload: dict) -> str:
     return "\n\n".join(text_chunks).strip()
 
 
-def request_openai_oracle_answer(payload: OracleChatRequest, access_result: dict) -> str:
+def request_openai_oracle_answer(
+    payload: OracleChatRequest,
+    access_result: dict,
+    verified_calculation: dict | None = None,
+) -> str:
     api_key = os.environ.get("OPENAI_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY is not configured.")
@@ -5741,7 +5917,7 @@ def request_openai_oracle_answer(payload: OracleChatRequest, access_result: dict
                 "content": [
                     {
                         "type": "input_text",
-                        "text": oracle_user_input(payload, access_result),
+                        "text": oracle_user_input(payload, access_result, verified_calculation),
                     }
                 ],
             }
@@ -5873,7 +6049,8 @@ def chat_with_astromeg_oracle(payload: OracleChatRequest):
         )
 
     try:
-        answer = request_openai_oracle_answer(payload, access_result)
+        verified_calculation = oracle_verified_calculation(payload)
+        answer = request_openai_oracle_answer(payload, access_result, verified_calculation)
     except RuntimeError as error:
         logger.warning("oracle chat runtime unavailable status=%s error=%s", access_result.get("status"), error)
         return json_response(
