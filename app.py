@@ -1373,6 +1373,9 @@ ACCESS_CACHE_TTL_SECONDS = int(os.environ.get("ORACLE_ACCESS_CACHE_TTL_SECONDS",
 ACCESS_CACHE_FILE = BASE_DIR / ".access_cache.json"
 ACCESS_CACHE: dict[str, tuple[float, dict]] = {}
 ACCESS_CACHE_LOADED = False
+PUBLIC_ACCESS_AUTH_WINDOW_SECONDS = int(os.environ.get("ORACLE_PUBLIC_ACCESS_AUTH_WINDOW_SECONDS", "300"))
+PUBLIC_ACCESS_AUTH_MAX_ATTEMPTS = int(os.environ.get("ORACLE_PUBLIC_ACCESS_AUTH_MAX_ATTEMPTS", "10"))
+PUBLIC_ACCESS_AUTH_ATTEMPTS: dict[str, list[float]] = {}
 
 TEST_BIRTHPLACES = (
     "Quezon City, Philippines",
@@ -5632,6 +5635,53 @@ def validate_account_email(email: str) -> dict:
     return validate_account_email_from_rows(email, fetch_access_sheet_rows())
 
 
+def resolve_public_access_code(access_code: str) -> dict:
+    if normalize_access_code(access_code) == "demo888":
+        return demo_access_result()
+
+    cached_result = get_cached_access_response(access_code)
+    if cached_result is not None:
+        return cached_result
+
+    try:
+        external_result = validate_access_code_with_external_service(access_code)
+    except Exception as error:
+        logger.warning("public access validation external service failed error=%s", error)
+        external_result = None
+
+    result = external_result or validate_access_code_from_rows(access_code, fetch_access_sheet_rows())
+    cache_access_response(access_code, result)
+    return result
+
+
+def public_access_auth_client_key(request: Request) -> str:
+    forwarded_for = str(request.headers.get("X-Forwarded-For", "")).split(",", 1)[0].strip()
+    if forwarded_for:
+        return forwarded_for
+
+    client = getattr(request, "client", None)
+    return str(getattr(client, "host", "") or "unknown")
+
+
+def public_access_auth_rate_limited(request: Request) -> bool:
+    now = time.time()
+    window_start = now - PUBLIC_ACCESS_AUTH_WINDOW_SECONDS
+    client_key = public_access_auth_client_key(request)
+    attempts = [
+        attempted_at
+        for attempted_at in PUBLIC_ACCESS_AUTH_ATTEMPTS.get(client_key, [])
+        if attempted_at >= window_start
+    ]
+
+    if len(attempts) >= PUBLIC_ACCESS_AUTH_MAX_ATTEMPTS:
+        PUBLIC_ACCESS_AUTH_ATTEMPTS[client_key] = attempts
+        return True
+
+    attempts.append(now)
+    PUBLIC_ACCESS_AUTH_ATTEMPTS[client_key] = attempts
+    return False
+
+
 def validate_oracle_chat_access(payload: OracleChatRequest) -> dict:
     access_code = str(payload.access_code or "").strip()
     if normalize_access_code(access_code) == "demo888":
@@ -6784,6 +6834,54 @@ def robots_txt():
 @app.get("/favicon.ico", include_in_schema=False)
 def favicon():
     return Response(content=b"", media_type="image/x-icon", status_code=200)
+
+
+@app.post(
+    "/auth/access-code",
+    response_model=AccessCodeValidationResponse,
+    operation_id="signInWithAccessCode",
+    description="Validate an Oracle access code for the PWA onboarding flow.",
+)
+def sign_in_with_access_code(payload: AccessCodeValidationRequest, request: Request):
+    if public_access_auth_rate_limited(request):
+        return json_response(
+            access_response(
+                False,
+                "RATE_LIMITED",
+                "Too many code attempts. Please wait a few minutes and try again.",
+            ),
+            status_code=429,
+        )
+
+    access_code = str(payload.access_code or "").strip()
+    if not access_code:
+        return json_response(
+            access_response(False, "INVALID", "Enter your Oracle access code."),
+            status_code=400,
+        )
+
+    try:
+        result = resolve_public_access_code(access_code)
+    except Exception as error:
+        logger.exception("public access code validation unavailable error=%s", error)
+        cached_result = get_cached_access_response(access_code, allow_stale=True)
+        if cached_result is not None:
+            cached_result["message"] = "Access confirmed from recent validation cache."
+            cached_result["validation_source"] = "render_cache"
+            return json_response(cached_result)
+        return json_response(
+            access_response(
+                False,
+                "ERROR",
+                "Access validation is temporarily unavailable. Please try again.",
+            ),
+            status_code=503,
+        )
+
+    if not result.get("valid"):
+        return json_response(result, status_code=403)
+
+    return json_response(result)
 
 
 @app.post(

@@ -46,6 +46,7 @@ class AccessCodeValidationTests(unittest.TestCase):
         app.ACCESS_CACHE_FILE = Path(self.cache_dir.name) / "access-cache.json"
         app.ACCESS_CACHE_LOADED = False
         app.ACCESS_CACHE.clear()
+        app.PUBLIC_ACCESS_AUTH_ATTEMPTS.clear()
 
     def tearDown(self):
         app.fetch_access_sheet_rows = self.original_fetch
@@ -53,6 +54,7 @@ class AccessCodeValidationTests(unittest.TestCase):
         app.ACCESS_CACHE_FILE = self.original_access_cache_file
         app.ACCESS_CACHE_LOADED = self.original_access_cache_loaded
         app.ACCESS_CACHE.clear()
+        app.PUBLIC_ACCESS_AUTH_ATTEMPTS.clear()
         self.cache_dir.cleanup()
         if self.original_api_key is None:
             os.environ.pop("ORACLE_BACKEND_API_KEY", None)
@@ -106,6 +108,39 @@ class AccessCodeValidationTests(unittest.TestCase):
         self.assertIsNone(result["email"])
         self.assertEqual(result["permission_level"], "VIP")
         self.assertEqual(result["reading_type"], "30DAY")
+
+    def test_public_access_code_sign_in_accepts_valid_code_without_backend_key(self):
+        os.environ.pop("ORACLE_BACKEND_API_KEY", None)
+        app.fetch_access_sheet_rows = self.rows
+
+        response = app.sign_in_with_access_code(
+            app.AccessCodeValidationRequest(access_code="FULL-CODE"),
+            FakeRequest({"X-Forwarded-For": "203.0.113.1"}),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = json.loads(response.body)
+        self.assertTrue(payload["valid"])
+        self.assertEqual(payload["customer_name"], "Meg Founder")
+
+    def test_public_access_code_sign_in_rejects_invalid_code(self):
+        app.fetch_access_sheet_rows = self.rows
+
+        response = app.sign_in_with_access_code(
+            app.AccessCodeValidationRequest(access_code="NOT-REAL"),
+            FakeRequest({"X-Forwarded-For": "203.0.113.2"}),
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(json.loads(response.body)["valid"])
+
+    def test_public_access_code_sign_in_rate_limits_repeated_attempts(self):
+        request = FakeRequest({"X-Forwarded-For": "203.0.113.3"})
+
+        for _ in range(app.PUBLIC_ACCESS_AUTH_MAX_ATTEMPTS):
+            self.assertFalse(app.public_access_auth_rate_limited(request))
+
+        self.assertTrue(app.public_access_auth_rate_limited(request))
 
     def test_expired_code(self):
         result = app.validate_access_code_from_rows(
