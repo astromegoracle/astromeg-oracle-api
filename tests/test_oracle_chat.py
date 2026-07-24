@@ -1,7 +1,7 @@
 import json
 import os
 import unittest
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import app
@@ -74,6 +74,41 @@ class OracleChatTests(unittest.TestCase):
 
         self.assertEqual(len(context["recent_history"]), 8)
         self.assertEqual(context["recent_history"][0]["content"], "message 2")
+
+    def test_runtime_context_uses_authoritative_manila_clock(self):
+        original_now = app.oracle_now
+        app.oracle_now = lambda: datetime(2026, 7, 24, 18, 30, tzinfo=MANILA)
+        try:
+            context = app.oracle_runtime_context()
+        finally:
+            app.oracle_now = original_now
+
+        self.assertEqual(context["current_date"], "2026-07-24")
+        self.assertEqual(context["weekday"], "Friday")
+        self.assertEqual(context["timezone"], "Asia/Manila")
+
+    def test_current_date_question_bypasses_model_memory(self):
+        original_now = app.oracle_now
+        original_request = app.request_openai_oracle_answer
+        app.oracle_now = lambda: datetime(2026, 7, 24, 18, 30, tzinfo=MANILA)
+        app.request_openai_oracle_answer = lambda *_args, **_kwargs: self.fail(
+            "The model must not answer an exact current-date question."
+        )
+        try:
+            result = app.chat_with_astromeg_oracle(
+                app.OracleChatRequest(
+                    question="What is the date today???",
+                    access_code="DEMO888",
+                )
+            )
+        finally:
+            app.oracle_now = original_now
+            app.request_openai_oracle_answer = original_request
+
+        self.assertEqual(
+            result["answer"],
+            "Today is Friday, July 24, 2026, in Manila (Asia/Manila).",
+        )
 
     def test_openai_request_is_not_stored_and_has_output_limit(self):
         os.environ["OPENAI_API_KEY"] = "test-key"
@@ -302,20 +337,24 @@ class OracleChatTests(unittest.TestCase):
                 self.assertEqual(calculation["type"], expected_type)
                 self.assertEqual(calculation["source"], "Swiss Ephemeris")
 
-    def test_calculator_missing_inputs_are_reported_without_running_engine(self):
-        payload = app.OracleChatRequest(
-            question="Calculate my transit timeline.",
-            access_code="DEMO888",
-            birth_profile={},
-        )
+    def test_transit_request_uses_automatic_manila_window(self):
+        original_now = app.oracle_now
+        app.oracle_now = lambda: datetime(2026, 7, 24, 18, 30, tzinfo=MANILA)
+        try:
+            request, missing = app.oracle_transit_request(
+                app.OracleChatRequest(
+                    question="Calculate my current transits.",
+                    access_code="DEMO888",
+                )
+            )
+        finally:
+            app.oracle_now = original_now
 
-        calculation = app.oracle_verified_calculation(payload)
-
-        self.assertEqual(calculation["status"], "missing_inputs")
-        self.assertEqual(calculation["type"], "transit_timeline")
-        self.assertIn("transit_start_date", calculation["missing"])
-        self.assertIn("transit_end_date", calculation["missing"])
-        self.assertIn("transit_planet_or_all_planets", calculation["missing"])
+        self.assertEqual(missing, [])
+        self.assertEqual(request.start_date, date(2026, 7, 24))
+        self.assertEqual(request.end_date, date(2026, 7, 24) + timedelta(days=180))
+        self.assertEqual(request.timezone, "Asia/Manila")
+        self.assertEqual(request.planet, "all")
 
     def test_verified_calculation_denial_is_rejected_and_regenerated(self):
         original_calculation = app.oracle_verified_calculation

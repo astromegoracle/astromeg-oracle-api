@@ -106,6 +106,39 @@ os.environ["SE_EPHE_PATH"] = str(EPHE_PATH)
 swe.set_ephe_path(str(EPHE_PATH))
 
 
+def oracle_now() -> datetime:
+    return datetime.now(ZoneInfo(MANILA_TIMEZONE))
+
+
+def oracle_runtime_context() -> dict:
+    current = oracle_now()
+    return {
+        "current_date": current.date().isoformat(),
+        "current_datetime": current.isoformat(),
+        "weekday": current.strftime("%A"),
+        "timezone": MANILA_TIMEZONE,
+    }
+
+
+def is_current_date_question(question: str) -> bool:
+    text = str(question or "").strip().casefold()
+    return bool(
+        re.search(
+            r"\b(?:what(?:'s| is)?|tell me|give me)?\s*(?:the\s+)?"
+            r"(?:date\s+today|today'?s\s+date|current\s+date|what\s+day\s+is\s+it)\b",
+            text,
+        )
+    )
+
+
+def current_date_answer() -> str:
+    current = oracle_now()
+    return (
+        f"Today is {current.strftime('%A')}, {current.strftime('%B')} "
+        f"{current.day}, {current.year}, in Manila ({MANILA_TIMEZONE})."
+    )
+
+
 class ErrorResponse(BaseModel):
     status: str = "error"
     success: bool = False
@@ -5616,7 +5649,7 @@ def load_oracle_prompt() -> str:
 
 
 def demo_access_result() -> dict:
-    expiration = datetime.now(ZoneInfo(MANILA_TIMEZONE)).date() + timedelta(days=3)
+    expiration = oracle_now().date() + timedelta(days=3)
     return access_response(
         True,
         "DEMO",
@@ -5855,7 +5888,7 @@ def oracle_dates_in_text(text: str) -> list[date]:
 
 
 def oracle_current_date() -> date:
-    return datetime.now(ZoneInfo(MANILA_TIMEZONE)).date()
+    return oracle_now().date()
 
 
 def oracle_calculation_intent(payload: OracleChatRequest) -> str | None:
@@ -5896,6 +5929,7 @@ def oracle_calculation_intent(payload: OracleChatRequest) -> str | None:
                 r"\btransit\s+timeline\b",
                 r"\btransit\s+(?:dates?|windows?|events?)\b",
                 r"\bpredictive\s+transits?\b",
+                r"\btransits?\b",
             ),
         ),
         ("composite_chart", (r"\bcomposite\s+(?:relationship\s+)?chart\b",)),
@@ -6046,30 +6080,14 @@ def oracle_transit_request(
         start_date = dates[0]
     if end_date is None and len(dates) > 1:
         end_date = dates[-1]
-    if start_date is None and re.search(
-        r"\b(?:today|current|now)\b",
-        conversation,
-        flags=re.IGNORECASE,
-    ):
+    if start_date is None:
         start_date = oracle_current_date()
-    if end_date is None and start_date is not None and re.search(
-        r"\b(?:today|on|for)\b[^\n.!?]{0,30}"
-        + re.escape(start_date.isoformat()),
-        conversation,
-        flags=re.IGNORECASE,
-    ):
-        end_date = start_date
+    if end_date is None:
+        end_date = start_date + timedelta(days=180)
 
     planets = oracle_transit_planets(payload, conversation)
-    missing: list[str] = []
-    if start_date is None:
-        missing.append("transit_start_date")
-    if end_date is None:
-        missing.append("transit_end_date")
     if not planets:
-        missing.append("transit_planet_or_all_planets")
-    if missing:
-        return None, missing
+        planets = ["all"]
 
     birth = oracle_birth_values(profile)
     complete_birth = not oracle_missing_birth_values(birth)
@@ -6079,7 +6097,8 @@ def oracle_transit_request(
         "start_date": start_date,
         "end_date": end_date,
         "timezone": str(
-            oracle_first_value(profile, "transit_timezone", "timezone") or "UTC"
+            oracle_first_value(profile, "transit_timezone", "timezone")
+            or MANILA_TIMEZONE
         ).strip(),
     }
     if complete_birth:
@@ -6435,8 +6454,10 @@ ORACLE_CALCULATION_RESULT_KEYS = (
     "return_location_timezone",
     "planet",
     "planets",
+    "verified_transit_timeline",
     "start_date",
     "end_date",
+    "timezone",
     "event_count",
     "events",
     "transit_to_natal_aspects",
@@ -6594,6 +6615,7 @@ def oracle_context_payload(
     return {
         "question": payload.question.strip(),
         "chat_mode": payload.chat_mode,
+        "runtime": oracle_runtime_context(),
         "account": {
             "email": access_result.get("email") or payload.email,
             "customer_name": access_result.get("customer_name") or payload.customer_name,
@@ -6638,8 +6660,12 @@ def oracle_user_input(
     return (
         correction
         + "Use the following Astromeg Oracle app context. "
+        "The runtime current_date, current_datetime, weekday, and timezone are authoritative. "
+        "Never infer today's date from model memory or conversation examples. "
         "When verified_calculation.status is verified, treat its Swiss Ephemeris values as authoritative "
         "and immediately answer with the exact requested placements, degrees, houses, angles, and timing. "
+        "For transit calculations, use the verified start_date, end_date, and timezone automatically; "
+        "do not ask the user to choose them again. "
         "Never claim verified data is unavailable, not loaded, pending, or still needs to be calculated. "
         "When its status is missing_inputs, ask only for those missing fields. "
         "If exact chart data is missing, ask for the missing birth details instead of inventing placements.\n\n"
@@ -6928,6 +6954,18 @@ def chat_with_astromeg_oracle(payload: OracleChatRequest):
             },
             status_code=403,
         )
+
+    if is_current_date_question(payload.question):
+        return {
+            "success": True,
+            "status": str(access_result.get("status") or "ACTIVE"),
+            "answer": current_date_answer(),
+            "message": "Current date confirmed.",
+            "reading_type": access_result.get("reading_type"),
+            "permission_level": access_result.get("permission_level"),
+            "expiration_date": access_result.get("expiration_date"),
+            "model": OPENAI_MODEL,
+        }
 
     try:
         verified_calculation = oracle_verified_calculation(payload)
