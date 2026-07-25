@@ -5264,6 +5264,7 @@ app.add_middleware(
     allow_origin_regex=(
         r"^http://(localhost|127\.0\.0\.1|192\.168\.\d{1,3}\.\d{1,3}):\d+$"
         r"|^https://[a-z0-9-]+\.netlify\.app$"
+        r"|^https://astromeg-oracle-app\.aeacademy-ph\.chatgpt\.site$"
     ),
     allow_credentials=False,
     allow_methods=["POST", "OPTIONS"],
