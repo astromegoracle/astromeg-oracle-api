@@ -45,8 +45,8 @@ ACCOUNT_VALIDATION_TIMEOUT_SECONDS = float(os.environ.get("ORACLE_ACCOUNT_VALIDA
 ACCOUNT_VALIDATION_ATTEMPTS = int(os.environ.get("ORACLE_ACCOUNT_VALIDATION_ATTEMPTS", "1"))
 ACCOUNT_VALIDATION_RETRY_DELAY_SECONDS = float(os.environ.get("ORACLE_ACCOUNT_VALIDATION_RETRY_DELAY_SECONDS", "0.25"))
 DEFAULT_ORACLE_OWNER_EMAILS = "meg.sanchez@gmail.com"
-ORACLE_CHAT_TIMEOUT_SECONDS = float(os.environ.get("ORACLE_CHAT_TIMEOUT_SECONDS", "35"))
-ORACLE_CHAT_MAX_OUTPUT_TOKENS = int(os.environ.get("ORACLE_CHAT_MAX_OUTPUT_TOKENS", "2600"))
+ORACLE_CHAT_TIMEOUT_SECONDS = float(os.environ.get("ORACLE_CHAT_TIMEOUT_SECONDS", "90"))
+ORACLE_CHAT_MAX_OUTPUT_TOKENS = int(os.environ.get("ORACLE_CHAT_MAX_OUTPUT_TOKENS", "6000"))
 ORACLE_CHAT_MAX_CONTEXT_CHARS = int(os.environ.get("ORACLE_CHAT_MAX_CONTEXT_CHARS", "60000"))
 ORACLE_HISTORY_MESSAGE_LIMIT = int(os.environ.get("ORACLE_HISTORY_MESSAGE_LIMIT", "2400"))
 ORACLE_HISTORY_RECENT_MESSAGES = int(os.environ.get("ORACLE_HISTORY_RECENT_MESSAGES", "6"))
@@ -57,7 +57,9 @@ ORACLE_KNOWLEDGE_MAX_CHARS = int(os.environ.get("ORACLE_KNOWLEDGE_MAX_CHARS", "1
 ORACLE_KNOWLEDGE_MAX_CHUNKS = int(os.environ.get("ORACLE_KNOWLEDGE_MAX_CHUNKS", "8"))
 ORACLE_KNOWLEDGE_SOURCE_LIMIT = int(os.environ.get("ORACLE_KNOWLEDGE_SOURCE_LIMIT", "2"))
 OPENAI_API_URL = os.environ.get("OPENAI_API_URL", "https://api.openai.com/v1/responses").strip()
-OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4.1-mini").strip()
+OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-5.6-sol").strip()
+OPENAI_REASONING_EFFORT = os.environ.get("OPENAI_REASONING_EFFORT", "medium").strip().lower()
+OPENAI_TEXT_VERBOSITY = os.environ.get("OPENAI_TEXT_VERBOSITY", "high").strip().lower()
 HOUSE_SYSTEM = "Placidus"
 ZODIAC = "Tropical"
 HOUSE_SYSTEM_CODES = {
@@ -7306,6 +7308,8 @@ def request_openai_oracle_answer(
 
     request_body = {
         "model": OPENAI_MODEL,
+        "reasoning": {"effort": OPENAI_REASONING_EFFORT},
+        "text": {"verbosity": OPENAI_TEXT_VERBOSITY},
         "instructions": oracle_model_instructions(),
         "input": [
             {

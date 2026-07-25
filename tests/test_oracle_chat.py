@@ -155,6 +155,15 @@ class OracleChatTests(unittest.TestCase):
 
         self.assertEqual(answer, "Your answer is ready.")
         self.assertFalse(captured["body"]["store"])
+        self.assertEqual(captured["body"]["model"], app.OPENAI_MODEL)
+        self.assertEqual(
+            captured["body"]["reasoning"],
+            {"effort": app.OPENAI_REASONING_EFFORT},
+        )
+        self.assertEqual(
+            captured["body"]["text"],
+            {"verbosity": app.OPENAI_TEXT_VERBOSITY},
+        )
         self.assertEqual(captured["body"]["max_output_tokens"], app.ORACLE_CHAT_MAX_OUTPUT_TOKENS)
         self.assertEqual(captured["timeout"], app.ORACLE_CHAT_TIMEOUT_SECONDS)
 
