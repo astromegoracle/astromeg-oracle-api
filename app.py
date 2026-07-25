@@ -48,6 +48,9 @@ DEFAULT_ORACLE_OWNER_EMAILS = "meg.sanchez@gmail.com"
 ORACLE_CHAT_TIMEOUT_SECONDS = float(os.environ.get("ORACLE_CHAT_TIMEOUT_SECONDS", "35"))
 ORACLE_CHAT_MAX_OUTPUT_TOKENS = int(os.environ.get("ORACLE_CHAT_MAX_OUTPUT_TOKENS", "2600"))
 ORACLE_CHAT_MAX_CONTEXT_CHARS = int(os.environ.get("ORACLE_CHAT_MAX_CONTEXT_CHARS", "60000"))
+ORACLE_HISTORY_MESSAGE_LIMIT = int(os.environ.get("ORACLE_HISTORY_MESSAGE_LIMIT", "2400"))
+ORACLE_HISTORY_RECENT_MESSAGES = int(os.environ.get("ORACLE_HISTORY_RECENT_MESSAGES", "6"))
+ORACLE_HISTORY_COMPACTION_MARKER = "\n\n[Earlier reading compacted for conversation memory]\n\n"
 ORACLE_PROMPT_FILE = os.environ.get("ORACLE_PROMPT_FILE", "").strip()
 OPENAI_API_URL = os.environ.get("OPENAI_API_URL", "https://api.openai.com/v1/responses").strip()
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4.1-mini").strip()
@@ -438,7 +441,7 @@ class GoogleSignInResponse(BaseModel):
 
 class OracleChatMessage(BaseModel):
     role: str = Field(default="user", max_length=16)
-    content: str = Field(max_length=3000)
+    content: str
 
 
 class OracleChatRequest(BaseModel):
@@ -5847,10 +5850,29 @@ def validate_oracle_chat_access(payload: OracleChatRequest) -> dict:
     return access_response(False, "ACCESS_REQUIRED", "Sign in or enter an active Oracle access code.")
 
 
+def compact_oracle_history_content(
+    content: str,
+    limit: int = ORACLE_HISTORY_MESSAGE_LIMIT,
+) -> str:
+    text = content.strip()
+    if len(text) <= limit:
+        return text
+
+    marker = ORACLE_HISTORY_COMPACTION_MARKER
+    available = max(limit - len(marker), 2)
+    head_length = max(int(available * 0.7), 1)
+    tail_length = max(available - head_length, 1)
+    return (
+        f"{text[:head_length].rstrip()}"
+        f"{marker}"
+        f"{text[-tail_length:].lstrip()}"
+    )
+
+
 def oracle_conversation_text(payload: OracleChatRequest) -> str:
     messages = [
-        message.content.strip()
-        for message in payload.history
+        compact_oracle_history_content(message.content)
+        for message in payload.history[-ORACLE_HISTORY_RECENT_MESSAGES:]
         if message.role.strip().casefold() == "user" and message.content.strip()
     ]
     messages.append(payload.question.strip())
@@ -6782,15 +6804,15 @@ def oracle_context_payload(
     verified_calculation: dict | None = None,
 ) -> dict:
     safe_history = []
-    for message in payload.history[-8:]:
-        content = message.content.strip()
+    for message in payload.history[-ORACLE_HISTORY_RECENT_MESSAGES:]:
+        content = compact_oracle_history_content(message.content)
         if not content:
             continue
         role = message.role.strip().casefold()
         safe_history.append(
             {
                 "role": role if role in {"user", "assistant"} else "user",
-                "content": content[:3000],
+                "content": content,
             }
         )
 

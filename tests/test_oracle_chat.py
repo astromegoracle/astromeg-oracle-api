@@ -63,7 +63,7 @@ class OracleChatTests(unittest.TestCase):
         self.assertEqual(result["customer_name"], "Meg")
         self.assertEqual(result["permission_level"], "FOUNDER")
 
-    def test_context_keeps_only_eight_recent_messages(self):
+    def test_context_keeps_only_six_recent_messages(self):
         payload = app.OracleChatRequest(
             question="What is next?",
             access_code="DEMO888",
@@ -74,8 +74,26 @@ class OracleChatTests(unittest.TestCase):
         )
         context = app.oracle_context_payload(payload, app.demo_access_result())
 
-        self.assertEqual(len(context["recent_history"]), 8)
-        self.assertEqual(context["recent_history"][0]["content"], "message 2")
+        self.assertEqual(len(context["recent_history"]), 6)
+        self.assertEqual(context["recent_history"][0]["content"], "message 4")
+
+    def test_long_history_is_accepted_and_compacted_for_model_context(self):
+        long_reading = "Opening insight. " + ("deep interpretation " * 700) + "Closing guidance."
+        payload = app.OracleChatRequest(
+            question="What does this mean for me now?",
+            access_code="DEMO888",
+            history=[
+                app.OracleChatMessage(role="assistant", content=long_reading),
+            ],
+        )
+
+        context = app.oracle_context_payload(payload, app.demo_access_result())
+        compacted = context["recent_history"][0]["content"]
+
+        self.assertLessEqual(len(compacted), app.ORACLE_HISTORY_MESSAGE_LIMIT)
+        self.assertIn(app.ORACLE_HISTORY_COMPACTION_MARKER.strip(), compacted)
+        self.assertTrue(compacted.startswith("Opening insight."))
+        self.assertTrue(compacted.endswith("Closing guidance."))
 
     def test_runtime_context_uses_authoritative_manila_clock(self):
         original_now = app.oracle_now
