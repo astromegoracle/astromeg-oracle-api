@@ -469,6 +469,107 @@ class OracleChatTests(unittest.TestCase):
         self.assertIn("authoritative", prompt)
         self.assertIn("Never claim verified data is unavailable", prompt)
 
+    def test_private_knowledge_retrieval_prioritizes_style_and_progressions(self):
+        chunks = [
+            {
+                "id": "style:1",
+                "source_id": "style",
+                "category": "reading_style",
+                "priority": 10,
+                "keywords": ["reading sequence", "action plan", "warm voice"],
+                "text": (
+                    "Begin with the immediate chart theme, interpret with warmth, "
+                    "and close with insight and a practical action plan."
+                ),
+            },
+            {
+                "id": "progressed:1",
+                "source_id": "progressed",
+                "category": "progressed_charts",
+                "priority": 9,
+                "keywords": ["progressed chart", "progressed moon", "solar arc"],
+                "text": (
+                    "The progressed Moon describes the emotional chapter and is "
+                    "the first priority in a secondary progressed chart."
+                ),
+            },
+            {
+                "id": "wisdom:1",
+                "source_id": "wisdom",
+                "category": "wisdom_reference",
+                "priority": 3,
+                "keywords": ["tesla"],
+                "text": "Tesla worked with resonance and electrical systems.",
+            },
+        ]
+
+        selected = app.select_oracle_knowledge(
+            chunks,
+            "Give me an in-depth secondary progressed chart reading.",
+            calculation_type="progressed_chart",
+        )
+
+        topics = {item["topic"] for item in selected}
+        self.assertIn("reading_style", topics)
+        self.assertIn("progressed_charts", topics)
+        self.assertNotIn("wisdom_reference", topics)
+
+    def test_private_knowledge_selection_stays_inside_context_budget(self):
+        original_max_chars = app.ORACLE_KNOWLEDGE_MAX_CHARS
+        original_max_chunks = app.ORACLE_KNOWLEDGE_MAX_CHUNKS
+        app.ORACLE_KNOWLEDGE_MAX_CHARS = 120
+        app.ORACLE_KNOWLEDGE_MAX_CHUNKS = 2
+        try:
+            chunks = [
+                {
+                    "id": f"style:{index}",
+                    "source_id": "style",
+                    "category": "reading_style",
+                    "priority": 10,
+                    "keywords": ["love"],
+                    "text": "love relationship warmth guidance " * 3,
+                }
+                for index in range(4)
+            ]
+            selected = app.select_oracle_knowledge(
+                chunks,
+                "Give me a warm love relationship reading.",
+            )
+        finally:
+            app.ORACLE_KNOWLEDGE_MAX_CHARS = original_max_chars
+            app.ORACLE_KNOWLEDGE_MAX_CHUNKS = original_max_chunks
+
+        self.assertTrue(selected)
+        self.assertLessEqual(sum(len(item["content"]) for item in selected), 120)
+        self.assertLessEqual(len(selected), 2)
+
+    def test_private_knowledge_prompt_keeps_sources_hidden(self):
+        original_loader = app.load_oracle_knowledge
+        app.load_oracle_knowledge = lambda: [
+            {
+                "id": "style:1",
+                "source_id": "style",
+                "category": "reading_style",
+                "priority": 10,
+                "keywords": ["warm"],
+                "text": "Write a warm, deep interpretation with an action plan.",
+            }
+        ]
+        try:
+            prompt = app.oracle_user_input(
+                app.OracleChatRequest(
+                    question="Give me a warm reading.",
+                    access_code="DEMO888",
+                ),
+                app.demo_access_result(),
+            )
+        finally:
+            app.load_oracle_knowledge = original_loader
+
+        self.assertIn('"private_knowledge"', prompt)
+        self.assertIn("Use private_knowledge silently", prompt)
+        self.assertIn("Never name, quote, reveal", prompt)
+
     def test_relationship_chart_requires_named_person_when_several_are_saved(self):
         payload = app.OracleChatRequest(
             question="Calculate a composite chart.",
