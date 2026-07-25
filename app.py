@@ -409,6 +409,29 @@ class AccessCodeValidationResponse(BaseModel):
     reading_type: str | None = None
 
 
+class GoogleAuthConfigResponse(BaseModel):
+    success: bool
+    configured: bool
+    client_id: str | None = None
+    message: str
+
+
+class GoogleSignInRequest(BaseModel):
+    credential: str
+
+
+class GoogleSignInResponse(BaseModel):
+    success: bool
+    status: str
+    message: str
+    email: str | None = None
+    customer_name: str | None = None
+    expiration_date: str | None = None
+    permission_level: str | None = None
+    reading_type: str | None = None
+    picture: str | None = None
+
+
 class OracleChatMessage(BaseModel):
     role: str = Field(default="user", max_length=16)
     content: str = Field(max_length=3000)
@@ -5698,6 +5721,60 @@ def apply_owner_access(email: str, result: dict) -> dict:
     return owner_result
 
 
+def google_client_id() -> str:
+    return os.environ.get("GOOGLE_CLIENT_ID", "").strip()
+
+
+def verify_google_credential(credential: str, client_id: str) -> dict:
+    try:
+        from google.auth.transport.requests import Request as GoogleAuthRequest
+        from google.oauth2 import id_token as google_id_token
+    except ImportError as error:
+        raise RuntimeError("Google authentication dependency is not installed.") from error
+
+    try:
+        token_info = google_id_token.verify_oauth2_token(
+            credential,
+            GoogleAuthRequest(),
+            client_id,
+        )
+    except ValueError as error:
+        raise RuntimeError("Google sign-in could not be verified.") from error
+
+    issuer = str(token_info.get("iss") or "")
+    if issuer not in {"accounts.google.com", "https://accounts.google.com"}:
+        raise RuntimeError("Google sign-in returned an invalid issuer.")
+
+    if token_info.get("email_verified") is not True:
+        raise RuntimeError("Google email is not verified.")
+
+    return token_info
+
+
+def google_sign_in_response(
+    success: bool,
+    status: str,
+    message: str,
+    email: str | None = None,
+    customer_name: str | None = None,
+    expiration_date: str | None = None,
+    permission_level: str | None = None,
+    reading_type: str | None = None,
+    picture: str | None = None,
+) -> dict:
+    return {
+        "success": success,
+        "status": status,
+        "message": message,
+        "email": email,
+        "customer_name": customer_name,
+        "expiration_date": expiration_date,
+        "permission_level": permission_level,
+        "reading_type": reading_type,
+        "picture": picture,
+    }
+
+
 def resolve_public_access_code(access_code: str) -> dict:
     if normalize_access_code(access_code) == "demo888":
         return demo_access_result()
@@ -6967,6 +7044,106 @@ def robots_txt():
 @app.get("/favicon.ico", include_in_schema=False)
 def favicon():
     return Response(content=b"", media_type="image/x-icon", status_code=200)
+
+
+@app.get(
+    "/auth/google/config",
+    response_model=GoogleAuthConfigResponse,
+    operation_id="getGoogleAuthConfig",
+    description="Return the public Google OAuth client ID used by the PWA sign-in button.",
+)
+def get_google_auth_config():
+    client_id = google_client_id()
+    configured = bool(client_id)
+    return {
+        "success": configured,
+        "configured": configured,
+        "client_id": client_id or None,
+        "message": "Google sign-in is ready." if configured else "Google sign-in needs GOOGLE_CLIENT_ID in Render.",
+    }
+
+
+@app.post(
+    "/auth/google",
+    response_model=GoogleSignInResponse,
+    operation_id="signInWithGoogle",
+    description=(
+        "Verify a Google Identity Services credential, then match the verified email "
+        "against active Astromeg account access."
+    ),
+)
+def sign_in_with_google(payload: GoogleSignInRequest):
+    client_id = google_client_id()
+    if not client_id:
+        return json_response(
+            google_sign_in_response(
+                False,
+                "GOOGLE_NOT_CONFIGURED",
+                "Google sign-in needs GOOGLE_CLIENT_ID in Render.",
+            ),
+            status_code=503,
+        )
+
+    credential = str(payload.credential or "").strip()
+    if not credential:
+        return json_response(
+            google_sign_in_response(False, "MISSING_CREDENTIAL", "Google sign-in did not return a credential."),
+            status_code=400,
+        )
+
+    try:
+        token_info = verify_google_credential(credential, client_id)
+    except RuntimeError as error:
+        logger.warning("google sign-in verification failed error=%s", error)
+        return json_response(
+            google_sign_in_response(False, "GOOGLE_VERIFICATION_FAILED", str(error)),
+            status_code=401,
+        )
+
+    email = str(token_info.get("email") or "").strip()
+    if not email:
+        return json_response(
+            google_sign_in_response(False, "GOOGLE_EMAIL_MISSING", "Google did not return an email address."),
+            status_code=401,
+        )
+
+    try:
+        account_result = validate_account_email(email)
+    except Exception as error:
+        logger.exception("account validation unavailable email=%s error=%s", email, error)
+        return json_response(
+            google_sign_in_response(
+                False,
+                "ACCOUNT_VALIDATION_UNAVAILABLE",
+                "Account validation is temporarily unavailable. Please try again.",
+                email=email,
+            ),
+            status_code=503,
+        )
+
+    if not account_result.get("valid"):
+        return json_response(
+            google_sign_in_response(
+                False,
+                str(account_result.get("status") or "ACCOUNT_NOT_FOUND"),
+                str(account_result.get("message") or "No active Oracle plan was found for this Google email."),
+                email=email,
+                expiration_date=account_result.get("expiration_date"),
+            ),
+            status_code=403,
+        )
+
+    return google_sign_in_response(
+        True,
+        str(account_result.get("status") or "ACTIVE"),
+        "Signed in.",
+        email=str(account_result.get("email") or email),
+        customer_name=account_result.get("customer_name") or token_info.get("name"),
+        expiration_date=account_result.get("expiration_date"),
+        permission_level=account_result.get("permission_level"),
+        reading_type=account_result.get("reading_type"),
+        picture=token_info.get("picture"),
+    )
 
 
 @app.post(
