@@ -158,6 +158,59 @@ class AccessCodeValidationTests(unittest.TestCase):
 
         self.assertTrue(app.public_access_auth_rate_limited(request))
 
+    def test_public_email_sign_in_accepts_active_inner_circle_account(self):
+        os.environ.pop("ORACLE_ACCOUNT_VALIDATION_URL", None)
+        os.environ.pop("ORACLE_ACCESS_VALIDATION_URL", None)
+        app.fetch_access_sheet_rows = self.rows
+
+        response = app.sign_in_with_email(
+            app.EmailSignInRequest(email=" MEG@EXAMPLE.COM "),
+            FakeRequest({"X-Forwarded-For": "203.0.113.13"}),
+        )
+
+        payload = response
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["email"], "meg@example.com")
+        self.assertEqual(payload["customer_name"], "Meg Founder")
+        self.assertEqual(payload["expiration_date"], "2099-05-31")
+        self.assertEqual(payload["permission_level"], "VIP")
+        self.assertEqual(payload["reading_type"], "FOUNDER")
+
+    def test_public_email_sign_in_rejects_unknown_account(self):
+        os.environ.pop("ORACLE_ACCOUNT_VALIDATION_URL", None)
+        os.environ.pop("ORACLE_ACCESS_VALIDATION_URL", None)
+        app.fetch_access_sheet_rows = self.rows
+
+        response = app.sign_in_with_email(
+            app.EmailSignInRequest(email="unknown@example.com"),
+            FakeRequest({"X-Forwarded-For": "203.0.113.14"}),
+        )
+
+        self.assertEqual(response.status_code, 403)
+        payload = json.loads(response.body)
+        self.assertFalse(payload["success"])
+        self.assertEqual(payload["status"], "ACCOUNT_NOT_FOUND")
+
+    def test_public_email_sign_in_preserves_owner_all_access_and_expiration(self):
+        os.environ["ORACLE_OWNER_EMAILS"] = "meg.sanchez@gmail.com"
+        os.environ.pop("ORACLE_ACCOUNT_VALIDATION_URL", None)
+        os.environ.pop("ORACLE_ACCESS_VALIDATION_URL", None)
+        app.fetch_access_sheet_rows = lambda: [
+            ["Email", "Customer Name", "Status", "Expiration Date", "Permission Level", "Reading Type"],
+            ["meg.sanchez@gmail.com", "Astromeg", "ACTIVE", "2099-01-01", "", ""],
+        ]
+
+        response = app.sign_in_with_email(
+            app.EmailSignInRequest(email="meg.sanchez@gmail.com"),
+            FakeRequest({"X-Forwarded-For": "203.0.113.15"}),
+        )
+
+        payload = response
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["expiration_date"], "2099-01-01")
+        self.assertEqual(payload["permission_level"], "ALL_ACCESS_ANNUAL")
+        self.assertEqual(payload["reading_type"], "ALL_ACCESS_ANNUAL")
+
     def test_expired_code(self):
         result = app.validate_access_code_from_rows(
             "OLD-CODE",

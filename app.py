@@ -420,6 +420,10 @@ class GoogleSignInRequest(BaseModel):
     credential: str
 
 
+class EmailSignInRequest(BaseModel):
+    email: str
+
+
 class GoogleSignInResponse(BaseModel):
     success: bool
     status: str
@@ -7061,6 +7065,75 @@ def get_google_auth_config():
         "client_id": client_id or None,
         "message": "Google sign-in is ready." if configured else "Google sign-in needs GOOGLE_CLIENT_ID in Render.",
     }
+
+
+@app.post(
+    "/auth/email",
+    response_model=GoogleSignInResponse,
+    operation_id="signInWithEmail",
+    description=(
+        "Match an email address against active Astromeg account access for the "
+        "private inner-circle onboarding flow."
+    ),
+)
+def sign_in_with_email(payload: EmailSignInRequest, request: Request):
+    if public_access_auth_rate_limited(request):
+        return json_response(
+            google_sign_in_response(
+                False,
+                "RATE_LIMITED",
+                "Too many sign-in attempts. Please wait a few minutes and try again.",
+            ),
+            status_code=429,
+        )
+
+    email = str(payload.email or "").strip()
+    if not email:
+        return json_response(
+            google_sign_in_response(
+                False,
+                "INVALID_EMAIL",
+                "Enter the email connected to your Oracle account.",
+            ),
+            status_code=400,
+        )
+
+    try:
+        account_result = validate_account_email(email)
+    except Exception as error:
+        logger.exception("email account validation unavailable email=%s error=%s", email, error)
+        return json_response(
+            google_sign_in_response(
+                False,
+                "ACCOUNT_VALIDATION_UNAVAILABLE",
+                "Oracle access could not be checked yet. Please try again.",
+                email=email,
+            ),
+            status_code=503,
+        )
+
+    if not account_result.get("valid"):
+        return json_response(
+            google_sign_in_response(
+                False,
+                str(account_result.get("status") or "ACCOUNT_NOT_FOUND"),
+                str(account_result.get("message") or "No active Oracle access was found for this email."),
+                email=str(account_result.get("email") or email),
+                expiration_date=account_result.get("expiration_date"),
+            ),
+            status_code=403,
+        )
+
+    return google_sign_in_response(
+        True,
+        str(account_result.get("status") or "ACTIVE"),
+        "Access confirmed.",
+        email=str(account_result.get("email") or email),
+        customer_name=account_result.get("customer_name"),
+        expiration_date=account_result.get("expiration_date"),
+        permission_level=account_result.get("permission_level"),
+        reading_type=account_result.get("reading_type"),
+    )
 
 
 @app.post(
