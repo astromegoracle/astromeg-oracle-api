@@ -3405,17 +3405,11 @@ def validate_access_code_with_external_service(access_code: str) -> dict | None:
 
 
 def validate_account_email_with_external_service(email: str) -> dict | None:
-    validation_url = (
-        os.environ.get("ORACLE_ACCOUNT_VALIDATION_URL", "").strip()
-        or os.environ.get("ORACLE_ACCESS_VALIDATION_URL", "").strip()
-    )
+    validation_url = os.environ.get("ORACLE_ACCOUNT_VALIDATION_URL", "").strip()
     if not validation_url:
         return None
 
-    validation_secret = (
-        os.environ.get("ORACLE_ACCOUNT_VALIDATION_SECRET", "").strip()
-        or os.environ.get("ORACLE_ACCESS_VALIDATION_SECRET", "").strip()
-    )
+    validation_secret = os.environ.get("ORACLE_ACCOUNT_VALIDATION_SECRET", "").strip()
     request_body = json.dumps({"email": email, "secret": validation_secret}).encode("utf-8")
     request = UrlRequest(
         validation_url,

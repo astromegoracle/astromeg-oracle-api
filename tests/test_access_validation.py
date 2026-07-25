@@ -211,6 +211,21 @@ class AccessCodeValidationTests(unittest.TestCase):
         self.assertEqual(payload["permission_level"], "ALL_ACCESS_ANNUAL")
         self.assertEqual(payload["reading_type"], "ALL_ACCESS_ANNUAL")
 
+    def test_email_validation_does_not_call_access_code_webhook(self):
+        os.environ.pop("ORACLE_ACCOUNT_VALIDATION_URL", None)
+        os.environ["ORACLE_ACCESS_VALIDATION_URL"] = "https://example.com/access-code-only"
+        app.fetch_access_sheet_rows = self.rows
+
+        def unexpected_urlopen(*args, **kwargs):
+            self.fail("Email validation must not call the access-code webhook.")
+
+        app.urlopen = unexpected_urlopen
+
+        result = app.validate_account_email("meg@example.com")
+
+        self.assertTrue(result["valid"])
+        self.assertEqual(result["email"], "meg@example.com")
+
     def test_expired_code(self):
         result = app.validate_access_code_from_rows(
             "OLD-CODE",
@@ -534,11 +549,11 @@ class AccessCodeValidationTests(unittest.TestCase):
         self.assertEqual(payload["status"], "ACTIVE")
         self.assertEqual(payload["expiration_date"], "2099-05-31")
 
-    def test_account_validator_uses_existing_access_webhook_configuration(self):
-        os.environ.pop("ORACLE_ACCOUNT_VALIDATION_URL", None)
-        os.environ.pop("ORACLE_ACCOUNT_VALIDATION_SECRET", None)
-        os.environ["ORACLE_ACCESS_VALIDATION_URL"] = "https://hook.us2.make.com/account"
-        os.environ["ORACLE_ACCESS_VALIDATION_SECRET"] = "bridge-secret"
+    def test_account_validator_uses_dedicated_email_webhook_configuration(self):
+        os.environ["ORACLE_ACCOUNT_VALIDATION_URL"] = "https://hook.us2.make.com/account"
+        os.environ["ORACLE_ACCOUNT_VALIDATION_SECRET"] = "bridge-secret"
+        os.environ["ORACLE_ACCESS_VALIDATION_URL"] = "https://hook.us2.make.com/access-code"
+        os.environ["ORACLE_ACCESS_VALIDATION_SECRET"] = "access-code-secret"
 
         def fake_urlopen(request, timeout):
             self.assertEqual(request.full_url, "https://hook.us2.make.com/account")
