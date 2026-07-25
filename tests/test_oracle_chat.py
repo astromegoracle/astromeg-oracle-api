@@ -570,6 +570,27 @@ class OracleChatTests(unittest.TestCase):
         self.assertIn("Use private_knowledge silently", prompt)
         self.assertIn("Never name, quote, reveal", prompt)
 
+    def test_model_instructions_enforce_conversational_astromeg_voice(self):
+        instructions = app.oracle_model_instructions()
+
+        self.assertIn("ASTROMEG APP VOICE CONTRACT", instructions)
+        self.assertIn("private one-to-one conversation", instructions)
+        self.assertIn("lightly witty", instructions)
+        self.assertIn("trace the dispositors", instructions)
+        self.assertIn("Thank you for your insightful question", instructions)
+        self.assertIn("grounded action plan", instructions)
+
+    def test_health_reports_private_knowledge_readiness(self):
+        original_loader = app.load_oracle_knowledge
+        app.load_oracle_knowledge = lambda: [{"text": "one"}, {"text": "two"}]
+        try:
+            result = app.health()
+        finally:
+            app.load_oracle_knowledge = original_loader
+
+        self.assertTrue(result.oracle_knowledge_loaded)
+        self.assertEqual(result.oracle_knowledge_chunks, 2)
+
     def test_relationship_chart_requires_named_person_when_several_are_saved(self):
         payload = app.OracleChatRequest(
             question="Calculate a composite chart.",

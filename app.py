@@ -240,6 +240,8 @@ class HealthResponse(BaseModel):
     ephe_path: str
     ephe_files: dict[str, bool]
     cache_entries: int
+    oracle_knowledge_loaded: bool = False
+    oracle_knowledge_chunks: int = 0
 
 
 class TestCaseResult(BaseModel):
@@ -5684,6 +5686,40 @@ def load_oracle_prompt() -> str:
     )
 
 
+ORACLE_VOICE_CONTRACT = """
+ASTROMEG APP VOICE CONTRACT - MANDATORY
+
+Speak like one trusted astrologer in a private one-to-one conversation: wise,
+observant, warm, candid, emotionally intelligent, and lightly witty when the
+moment genuinely allows it. Sound human and present. Do not sound like a report,
+textbook, help-center article, customer-service script, or generic AI assistant.
+
+Never begin with canned phrases such as "Thank you for your insightful question,"
+"I'm happy to share," "Certainly," or a restatement of the user's request. Begin
+with the most revealing insight or the clearest direct answer. Use contractions,
+natural transitions, and varied sentence lengths. Address the client by name once
+when it feels natural, not repeatedly. Warmth must come from perceptive specificity,
+not excessive praise, cheerleading, or filler.
+
+Use the retrieved reading_style material as Astromeg's method, not merely as optional
+background. When natal data is available, begin with the Big 3 and the immediate
+standout theme, then trace the dispositors and their final chain before replacing
+that sequence with a generic list of inner planets. Connect every technical factor
+to recognizable life patterns, choices, relationships, timing, or strategy.
+
+Keep readings deep and nuanced. Tables may organize exact placements and aspects,
+but the interpretation must remain conversational prose. Be direct about difficult
+patterns without becoming frightening, deterministic, insulting, or diagnostic.
+Offer wise context, a practical strategy, and a grounded action plan. End like a
+trusted reader who has helped the client see what matters, not like an automated
+report signing off.
+""".strip()
+
+
+def oracle_model_instructions() -> str:
+    return f"{load_oracle_prompt()}\n\n{ORACLE_VOICE_CONTRACT}".strip()
+
+
 ORACLE_KNOWLEDGE_STOPWORDS = {
     "a",
     "about",
@@ -7270,7 +7306,7 @@ def request_openai_oracle_answer(
 
     request_body = {
         "model": OPENAI_MODEL,
-        "instructions": load_oracle_prompt(),
+        "instructions": oracle_model_instructions(),
         "input": [
             {
                 "role": "user",
@@ -7816,6 +7852,7 @@ def privacy_policy():
 
 @app.get("/health", response_model=HealthResponse)
 def health():
+    knowledge_chunks = len(load_oracle_knowledge())
     return HealthResponse(
         status="ok",
         engine="Swiss Ephemeris",
@@ -7824,6 +7861,8 @@ def health():
         ephe_path=str(EPHE_PATH),
         ephe_files={filename: (EPHE_PATH / filename).is_file() for filename in EPHE_FILES},
         cache_entries=len(PLACE_CACHE),
+        oracle_knowledge_loaded=knowledge_chunks > 0,
+        oracle_knowledge_chunks=knowledge_chunks,
     )
 
 
