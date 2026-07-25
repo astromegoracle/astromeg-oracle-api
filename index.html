@@ -11,7 +11,7 @@
     <link rel="manifest" href="./manifest.webmanifest">
     <link rel="icon" href="./assets/astromeg-oracle-logo-gold.png">
     <link rel="apple-touch-icon" href="./assets/astromeg-oracle-logo-gold.png">
-  <link rel="stylesheet" href="./styles.css?v=zodiac-playlist-complete-v1">
+  <link rel="stylesheet" href="./styles.css?v=guided-video-luminous-v1">
   </head>
   <body class="onboarding-active">
     <div class="ambient ambient-one"></div>
@@ -20,6 +20,16 @@
 
     <main class="phone-shell" id="app">
       <div class="glass-halo" aria-hidden="true"></div>
+      <div class="cosmic-stage" aria-hidden="true">
+        <span class="celestial-horizon"></span>
+        <span class="shooting-star shooting-star-one"></span>
+        <span class="shooting-star shooting-star-two"></span>
+        <span class="cosmic-comet"></span>
+        <span class="cosmic-constellation">
+          <i></i><i></i><i></i><i></i><i></i>
+        </span>
+        <span class="cosmic-twinkles"></span>
+      </div>
       <header class="app-header">
         <button class="icon-button ghost back-button" type="button" aria-label="Go back" data-back hidden>
           <span aria-hidden="true">‹</span>
@@ -28,7 +38,12 @@
           <span>Astromeg Oracle</span>
         </button>
         <button class="icon-button ghost menu-toggle" type="button" aria-label="Open Oracle Menu" aria-controls="oracle-menu" aria-expanded="false" data-menu-toggle>
-          <span aria-hidden="true">☀</span>
+          <span aria-hidden="true">
+            <svg class="gold-sun-icon" viewBox="0 0 24 24" focusable="false">
+              <circle cx="12" cy="12" r="4"></circle>
+              <path d="M12 2.8v2.3M12 18.9v2.3M4.2 4.2l1.6 1.6M18.2 18.2l1.6 1.6M2.8 12h2.3M18.9 12h2.3M4.2 19.8l1.6-1.6M18.2 5.8l1.6-1.6"></path>
+            </svg>
+          </span>
         </button>
       </header>
 
@@ -46,6 +61,14 @@
             <span class="menu-icon" aria-hidden="true">☉</span>
             <span><strong>Today’s Sky</strong><small>Daily transit guidance</small></span>
           </button>
+          <button class="menu-row" type="button" data-go="journal">
+            <span class="menu-icon" aria-hidden="true">☾</span>
+            <span><strong>Journal</strong><small>Moon phase and transit notes</small></span>
+          </button>
+          <button class="menu-row" type="button" data-go="zodiac-playlist">
+            <span class="menu-icon" aria-hidden="true">♪</span>
+            <span><strong>Zodiac Playlist</strong><small>Music moods for every sign</small></span>
+          </button>
           <button class="menu-row" type="button" data-go="readings">
             <span class="menu-icon" aria-hidden="true">☷</span>
             <span><strong>Saved Readings</strong><small>Your Oracle guidance library</small></span>
@@ -58,9 +81,15 @@
             <span class="menu-icon" aria-hidden="true">?</span>
             <span><strong>How to Ask</strong><small>Prompt examples</small></span>
           </button>
-          <button class="menu-row" type="button" data-go="theme">
-            <span class="menu-icon" aria-hidden="true">☀</span>
-            <span><strong>Theme</strong><small>Light and dark mode ready</small></span>
+          <button class="menu-row theme-toggle-row" type="button" data-theme-toggle aria-pressed="false">
+            <span class="menu-icon" aria-hidden="true">
+              <svg class="gold-sun-icon" viewBox="0 0 24 24" focusable="false">
+                <circle cx="12" cy="12" r="4"></circle>
+                <path d="M12 2.8v2.3M12 18.9v2.3M4.2 4.2l1.6 1.6M18.2 18.2l1.6 1.6M2.8 12h2.3M18.9 12h2.3M4.2 19.8l1.6-1.6M18.2 5.8l1.6-1.6"></path>
+              </svg>
+            </span>
+            <span><strong>Dark Mode</strong><small data-theme-toggle-label>Tap to turn dark mode on</small></span>
+            <span class="theme-toggle-switch" data-theme-toggle-switch aria-hidden="true"><span></span></span>
           </button>
           <button class="menu-row" type="button" data-go="contact">
             <span class="menu-icon" aria-hidden="true">✉</span>
@@ -74,41 +103,90 @@
       </aside>
 
       <section class="screen active onboarding-screen" data-screen="start" id="start" aria-label="Astromeg Oracle onboarding">
-        <div class="onboarding-artboard">
-          <img
-            class="onboarding-artwork"
-            src="./assets/astromeg-onboarding-01.png"
-            alt=""
-            aria-hidden="true"
-          >
-          <button
-            class="begin-journey-hotspot"
-            type="button"
-            data-go="activate"
-            aria-label="Begin your journey"
-          ></button>
+        <div class="onboarding-series" data-onboarding-series>
+          <div class="onboarding-aura" aria-hidden="true">
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+
+          <div class="onboarding-brand">
+            <img src="./assets/astromeg-oracle-pastel-logo-cropped.png" alt="Astromeg Oracle">
+          </div>
+
+          <div class="onboarding-visual" aria-hidden="true">
+            <span class="onboarding-orbit orbit-one"></span>
+            <span class="onboarding-orbit orbit-two"></span>
+            <span class="onboarding-orb"></span>
+            <span class="onboarding-star star-one">✦</span>
+            <span class="onboarding-star star-two">✧</span>
+          </div>
+
+          <div class="onboarding-copy" aria-live="polite">
+            <article class="onboarding-slide is-active" data-onboarding-slide>
+              <p class="eyebrow">Private Oracle</p>
+              <h1>Astrology That Upgrades Your Life</h1>
+              <p>Enter a calm space for timing, love, money, karma, and your chart.</p>
+            </article>
+            <article class="onboarding-slide" data-onboarding-slide>
+              <p class="eyebrow">Ask With Intention</p>
+              <h1>One question can open the doorway.</h1>
+              <p>Choose a guided reading path or ask the Oracle in your own words.</p>
+            </article>
+            <article class="onboarding-slide" data-onboarding-slide>
+              <p class="eyebrow">Save Your Guidance</p>
+              <h1>Keep the readings that matter.</h1>
+              <p>Build a private library for love patterns, timing windows, career themes, and healing.</p>
+            </article>
+            <article class="onboarding-slide" data-onboarding-slide>
+              <p class="eyebrow">Begin Gently</p>
+              <h1>Your access opens a private portal.</h1>
+              <p>Purchase your plan, then sign in with Google or the email you used at checkout.</p>
+            </article>
+          </div>
+
+          <div class="onboarding-progress" role="tablist" aria-label="Onboarding steps">
+            <button class="is-active" type="button" data-onboarding-dot="0" aria-label="Show onboarding step 1" aria-current="step"></button>
+            <button type="button" data-onboarding-dot="1" aria-label="Show onboarding step 2"></button>
+            <button type="button" data-onboarding-dot="2" aria-label="Show onboarding step 3"></button>
+            <button type="button" data-onboarding-dot="3" aria-label="Show onboarding step 4"></button>
+          </div>
+
+          <div class="onboarding-actions">
+            <button class="onboarding-next-button" type="button" data-onboarding-next>Next</button>
+            <button class="onboarding-preview-button" type="button" data-go="birth">Preview the App</button>
+          </div>
         </div>
       </section>
 
       <section class="screen" data-screen="activate" id="activate">
         <div class="screen-heading">
           <p class="eyebrow">Oracle Access</p>
-          <h2>Activate your private space.</h2>
-          <p>Use your email and access code to open your Astromeg Oracle app.</p>
+          <h2>Sign in to your private space.</h2>
+          <p>Use Google or the same email you used at checkout.</p>
         </div>
 
         <form class="soft-card form-card" data-activate-form>
+          <div class="google-signin-area">
+            <div class="google-signin-button-host" data-google-button></div>
+            <button class="google-signin-action" type="button" data-google-signin-fallback>
+              <span aria-hidden="true">G</span>
+              Continue with Google
+            </button>
+            <p class="signin-status" data-signin-status hidden>Google sign-in is loading.</p>
+          </div>
+          <div class="signin-divider"><span>or use email</span></div>
           <label>
             <span>Email</span>
             <input type="email" name="email" autocomplete="email" placeholder="you@example.com" required>
           </label>
-          <label>
-            <span>Access code</span>
-            <input type="text" name="accessCode" autocomplete="one-time-code" placeholder="ASTRO-XXXX" required>
-          </label>
-          <button class="primary-action" type="submit">Activate My Oracle</button>
+          <button class="primary-action" type="submit">Continue with Email</button>
+          <p class="signin-status" data-email-signin-status aria-live="polite" hidden></p>
         </form>
 
+        <button class="access-code-open-button" type="button" data-access-code-open>
+          I have an access code
+        </button>
         <button class="secondary-action" type="button" data-go="birth">Preview the App</button>
       </section>
 
@@ -121,6 +199,10 @@
 
         <form class="soft-card form-card" data-birth-form>
           <label>
+            <span>Name</span>
+            <input type="text" name="name" autocomplete="name" placeholder="Your name" required>
+          </label>
+          <label>
             <span>Birth date</span>
             <input type="date" name="birthDate" required>
           </label>
@@ -129,8 +211,12 @@
             <input type="time" name="birthTime" required>
           </label>
           <label>
-            <span>Birth place</span>
-            <input type="text" name="birthPlace" placeholder="City, Country" required>
+            <span>Birth city</span>
+            <input type="text" name="birthCity" placeholder="Los Angeles" required>
+          </label>
+          <label>
+            <span>Birth country</span>
+            <input type="text" name="birthCountry" placeholder="United States" required>
           </label>
           <button class="primary-action" type="submit">Save Birth Profile</button>
         </form>
@@ -138,39 +224,38 @@
 
       <section class="screen" data-screen="home" id="home">
         <div class="home-hero">
+          <button class="oracle-status-pill" type="button" data-access-pill data-go="my-access" aria-label="Oracle access active">
+            <span class="access-status-icon" aria-hidden="true" data-access-icon>✓</span>
+            <span data-access-text>Oracle Access Active</span>
+          </button>
           <p class="eyebrow">Today’s Oracle</p>
           <h2>What is calling for your attention today?</h2>
-          <p>Choose a doorway or ask your own question.</p>
-        </div>
-
-        <div class="oracle-status-pill" data-access-pill>
-          <span aria-hidden="true">✦</span>
-          <span>Oracle Access Active</span>
+          <p class="home-hero-prompt">Choose a doorway below or ask your own question.</p>
         </div>
 
         <div class="intent-grid">
-          <button class="intent-card" type="button" data-fill-prompt="What love pattern is showing now?" data-go="ask">
+          <button class="intent-card" type="button" data-chat-mode="love" data-go="ask">
             <span class="intent-icon">♡</span>
             <span class="intent-copy">
               <strong>Love & Patterns</strong>
               <small>Relationships, attraction, repeating cycles</small>
             </span>
           </button>
-          <button class="intent-card" type="button" data-fill-prompt="What money timing matters now?" data-go="ask">
+          <button class="intent-card" type="button" data-chat-mode="money" data-go="ask">
             <span class="intent-icon">✦</span>
             <span class="intent-copy">
               <strong>Money & Career</strong>
               <small>Clients, income, business timing</small>
             </span>
           </button>
-          <button class="intent-card" type="button" data-fill-prompt="What timing window opens now?" data-go="ask">
+          <button class="intent-card" type="button" data-chat-mode="timing" data-go="ask">
             <span class="intent-icon">☉</span>
             <span class="intent-copy">
               <strong>Timing Windows</strong>
               <small>Transits, decisions, lucky openings</small>
             </span>
           </button>
-          <button class="intent-card" type="button" data-fill-prompt="What karmic pattern needs healing now?" data-go="ask">
+          <button class="intent-card" type="button" data-chat-mode="karma" data-go="ask">
             <span class="intent-icon">☽</span>
             <span class="intent-copy">
               <strong>Karma & Healing</strong>
@@ -178,6 +263,95 @@
             </span>
           </button>
         </div>
+
+        <button class="oracle-ask-banner" type="button" data-go="ask" aria-label="Ask the Oracle">
+          <span aria-hidden="true">✦</span>
+          <strong>Ask the Oracle</strong>
+        </button>
+
+        <section class="daily-challenge-panel" aria-labelledby="daily-challenge-title">
+          <div class="daily-challenge-box">
+            <div class="daily-challenge-orbit" aria-hidden="true">
+              <span class="orbit-glyph orbit-glyph-moon">&#9790;&#65038;</span>
+              <i></i>
+              <span class="orbit-glyph orbit-glyph-mars">&#9794;&#65038;</span>
+            </div>
+            <div class="daily-challenge-copy">
+              <p class="eyebrow" id="daily-challenge-title">Your Challenge Today</p>
+              <h3 data-challenge-aspect>Moon to Mars</h3>
+              <p data-challenge-copy>Notice where emotion wants to become action.</p>
+            </div>
+            <button class="daily-challenge-action" type="button" data-challenge-prompt data-fill-prompt="How should I work with today’s Moon to Mars challenge?" data-go="ask">
+              Ask
+            </button>
+          </div>
+        </section>
+
+        <section class="guided-meditation-section" aria-labelledby="guided-meditation-title">
+          <div class="guided-meditation-heading">
+            <h3 id="guided-meditation-title">Guided Meditations</h3>
+          </div>
+          <div class="guided-meditation-frame" aria-label="Guided meditation animation">
+            <video autoplay muted loop playsinline preload="metadata">
+              <source src="./assets/guided-meditations-calm-loop-v2.mp4" type="video/mp4">
+            </video>
+          </div>
+          <details class="meditation-dropdown">
+            <summary>
+              <span>Choose Meditation</span>
+            </summary>
+            <div class="meditation-link-list" aria-label="Guided meditation playlist links">
+              <button class="meditation-link-card" type="button" data-meditation-choice="healing">
+                <span class="meditation-link-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" focusable="false">
+                    <path d="M5 19c8.7-.7 13-5.1 14-14-8.8 1-13.4 5.4-14 14Z"></path>
+                    <path d="M5 19c2.7-4.5 6-7.5 10-9.2"></path>
+                  </svg>
+                </span>
+                <span>
+                  <strong>Healing</strong>
+                  <small>Open inside Astromeg</small>
+                </span>
+              </button>
+              <button class="meditation-link-card" type="button" data-meditation-choice="wealth">
+                <span class="meditation-link-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" focusable="false">
+                    <path d="M7.2 4.5h9.6L21 9.2 12 20 3 9.2l4.2-4.7Z"></path>
+                    <path d="M3 9.2h18M8.2 9.2 12 20l3.8-10.8M7.2 4.5l1 4.7M16.8 4.5l-1 4.7"></path>
+                  </svg>
+                </span>
+                <span>
+                  <strong>Wealth</strong>
+                  <small>Open inside Astromeg</small>
+                </span>
+              </button>
+              <button class="meditation-link-card" type="button" data-meditation-choice="vipassana">
+                <span class="meditation-link-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" focusable="false">
+                    <path d="M4.5 16.5a7.5 7.5 0 0 1 15 0"></path>
+                    <path d="M7.5 16.5a4.5 4.5 0 0 1 9 0"></path>
+                    <path d="M10.5 16.5a1.5 1.5 0 0 1 3 0"></path>
+                  </svg>
+                </span>
+                <span>
+                  <strong>Vipassana</strong>
+                  <small>Open inside Astromeg</small>
+                </span>
+              </button>
+              <button class="meditation-link-card" type="button" data-meditation-choice="relationship">
+                <span class="meditation-link-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" focusable="false">
+                    <path d="M12 20.5S4.5 16 4.5 9.8c0-2.3 1.7-4 3.9-4 1.4 0 2.8.8 3.6 2 .8-1.2 2.2-2 3.6-2 2.2 0 3.9 1.7 3.9 4 0 6.2-7.5 10.7-7.5 10.7Z"></path>
+                  </svg>
+                </span>
+                <span>
+                  <strong>Relationship</strong>
+                  <small>Open inside Astromeg</small>
+                </span>
+              </button>
+            </div>
+          </details>
+        </section>
 
         <article class="soft-card insight-card transits-card">
           <p class="eyebrow">Your Daily Tea</p>
@@ -201,105 +375,117 @@
 
         <section class="zodiac-playlist-section" aria-labelledby="zodiac-playlist-title">
           <div class="zodiac-playlist-heading">
-            <p class="eyebrow" id="zodiac-playlist-title">Zodiac Playlist</p>
+            <div>
+              <p class="eyebrow" id="zodiac-playlist-title">Zodiac Playlist</p>
+              <h3>Slide into your sign frequency.</h3>
+            </div>
+            <button class="zodiac-playlist-link" type="button" data-go="zodiac-playlist">Open</button>
           </div>
-          <div class="zodiac-playlist-grid">
-            <article class="zodiac-playlist-card" aria-label="Aries playlist artwork">
-              <div class="zodiac-playlist-artwork">
-                <img src="./assets/zodiac-playlist-aries.jpeg" alt="Glass Aries glyph with headphones">
-              </div>
-              <div class="zodiac-playlist-caption">
-                <span>Aries</span>
-              </div>
-            </article>
-            <article class="zodiac-playlist-card" aria-label="Taurus playlist artwork">
-              <div class="zodiac-playlist-artwork">
-                <img src="./assets/zodiac-playlist-taurus.jpeg" alt="Glass Taurus glyph with headphones">
-              </div>
-              <div class="zodiac-playlist-caption">
-                <span>Taurus</span>
-              </div>
-            </article>
-            <article class="zodiac-playlist-card" aria-label="Gemini playlist artwork">
-              <div class="zodiac-playlist-artwork">
-                <img src="./assets/zodiac-playlist-gemini.jpeg" alt="Glass Gemini glyph with headphones">
-              </div>
-              <div class="zodiac-playlist-caption">
-                <span>Gemini</span>
-              </div>
-            </article>
-            <article class="zodiac-playlist-card" aria-label="Cancer playlist artwork">
-              <div class="zodiac-playlist-artwork">
-                <img src="./assets/zodiac-playlist-cancer.jpeg" alt="Glass Cancer glyph with headphones">
-              </div>
-              <div class="zodiac-playlist-caption">
-                <span>Cancer</span>
-              </div>
-            </article>
-            <article class="zodiac-playlist-card" aria-label="Leo playlist artwork">
-              <div class="zodiac-playlist-artwork">
-                <img src="./assets/zodiac-playlist-leo.jpeg" alt="Glass Leo glyph with headphones">
-              </div>
-              <div class="zodiac-playlist-caption">
-                <span>Leo</span>
-              </div>
-            </article>
-            <article class="zodiac-playlist-card" aria-label="Virgo playlist artwork">
-              <div class="zodiac-playlist-artwork">
-                <img src="./assets/zodiac-playlist-virgo.jpeg" alt="Glass Virgo glyph with headphones">
-              </div>
-              <div class="zodiac-playlist-caption">
-                <span>Virgo</span>
-              </div>
-            </article>
-            <article class="zodiac-playlist-card" aria-label="Libra playlist artwork">
-              <div class="zodiac-playlist-artwork">
-                <img src="./assets/zodiac-playlist-libra.jpeg" alt="Glass Libra glyph with headphones">
-              </div>
-              <div class="zodiac-playlist-caption">
-                <span>Libra</span>
-              </div>
-            </article>
-            <article class="zodiac-playlist-card" aria-label="Scorpio playlist artwork">
-              <div class="zodiac-playlist-artwork">
-                <img src="./assets/zodiac-playlist-scorpio.jpeg" alt="Glass Scorpio glyph with headphones">
-              </div>
-              <div class="zodiac-playlist-caption">
-                <span>Scorpio</span>
-              </div>
-            </article>
-            <article class="zodiac-playlist-card" aria-label="Sagittarius playlist artwork">
-              <div class="zodiac-playlist-artwork">
-                <img src="./assets/zodiac-playlist-sagittarius.jpeg" alt="Glass Sagittarius glyph with headphones">
-              </div>
-              <div class="zodiac-playlist-caption">
-                <span>Sagittarius</span>
-              </div>
-            </article>
-            <article class="zodiac-playlist-card" aria-label="Capricorn playlist artwork">
-              <div class="zodiac-playlist-artwork">
-                <img src="./assets/zodiac-playlist-capricorn.jpeg" alt="Glass Capricorn glyph with headphones">
-              </div>
-              <div class="zodiac-playlist-caption">
-                <span>Capricorn</span>
-              </div>
-            </article>
-            <article class="zodiac-playlist-card" aria-label="Aquarius playlist artwork">
-              <div class="zodiac-playlist-artwork">
-                <img src="./assets/zodiac-playlist-aquarius.jpeg" alt="Glass Aquarius glyph with headphones">
-              </div>
-              <div class="zodiac-playlist-caption">
-                <span>Aquarius</span>
-              </div>
-            </article>
-            <article class="zodiac-playlist-card" aria-label="Pisces playlist artwork">
-              <div class="zodiac-playlist-artwork">
-                <img src="./assets/zodiac-playlist-pisces.jpeg" alt="Glass Pisces glyph with headphones">
-              </div>
-              <div class="zodiac-playlist-caption">
-                <span>Pisces</span>
-              </div>
-            </article>
+          <div class="zodiac-slider-shell" data-zodiac-slider>
+            <button class="zodiac-slider-arrow previous" type="button" data-zodiac-prev aria-label="Previous zodiac sign">
+              <span aria-hidden="true">‹</span>
+            </button>
+            <div class="zodiac-playlist-grid" aria-live="polite">
+              <button class="zodiac-playlist-card active" type="button" data-playlist-sign="aries" aria-label="Open Aries playlist">
+                <div class="zodiac-playlist-artwork">
+                  <img src="./assets/zodiac-playlist-aries.jpeg" alt="Glass Aries glyph with headphones">
+                </div>
+                <div class="zodiac-playlist-caption">
+                  <span>Aries</span>
+                </div>
+              </button>
+              <button class="zodiac-playlist-card" type="button" data-playlist-sign="taurus" aria-label="Open Taurus playlist">
+                <div class="zodiac-playlist-artwork">
+                  <img src="./assets/zodiac-playlist-taurus.jpeg" alt="Glass Taurus glyph with headphones">
+                </div>
+                <div class="zodiac-playlist-caption">
+                  <span>Taurus</span>
+                </div>
+              </button>
+              <button class="zodiac-playlist-card" type="button" data-playlist-sign="gemini" aria-label="Open Gemini playlist">
+                <div class="zodiac-playlist-artwork">
+                  <img src="./assets/zodiac-playlist-gemini.jpeg" alt="Glass Gemini glyph with headphones">
+                </div>
+                <div class="zodiac-playlist-caption">
+                  <span>Gemini</span>
+                </div>
+              </button>
+              <button class="zodiac-playlist-card" type="button" data-playlist-sign="cancer" aria-label="Open Cancer playlist">
+                <div class="zodiac-playlist-artwork">
+                  <img src="./assets/zodiac-playlist-cancer.jpeg" alt="Glass Cancer glyph with headphones">
+                </div>
+                <div class="zodiac-playlist-caption">
+                  <span>Cancer</span>
+                </div>
+              </button>
+              <button class="zodiac-playlist-card" type="button" data-playlist-sign="leo" aria-label="Open Leo playlist">
+                <div class="zodiac-playlist-artwork">
+                  <img src="./assets/zodiac-playlist-leo.jpeg" alt="Glass Leo glyph with headphones">
+                </div>
+                <div class="zodiac-playlist-caption">
+                  <span>Leo</span>
+                </div>
+              </button>
+              <button class="zodiac-playlist-card" type="button" data-playlist-sign="virgo" aria-label="Open Virgo playlist">
+                <div class="zodiac-playlist-artwork">
+                  <img src="./assets/zodiac-playlist-virgo.jpeg" alt="Glass Virgo glyph with headphones">
+                </div>
+                <div class="zodiac-playlist-caption">
+                  <span>Virgo</span>
+                </div>
+              </button>
+              <button class="zodiac-playlist-card" type="button" data-playlist-sign="libra" aria-label="Open Libra playlist">
+                <div class="zodiac-playlist-artwork">
+                  <img src="./assets/zodiac-playlist-libra.jpeg" alt="Glass Libra glyph with headphones">
+                </div>
+                <div class="zodiac-playlist-caption">
+                  <span>Libra</span>
+                </div>
+              </button>
+              <button class="zodiac-playlist-card" type="button" data-playlist-sign="scorpio" aria-label="Open Scorpio playlist">
+                <div class="zodiac-playlist-artwork">
+                  <img src="./assets/zodiac-playlist-scorpio.jpeg" alt="Glass Scorpio glyph with headphones">
+                </div>
+                <div class="zodiac-playlist-caption">
+                  <span>Scorpio</span>
+                </div>
+              </button>
+              <button class="zodiac-playlist-card" type="button" data-playlist-sign="sagittarius" aria-label="Open Sagittarius playlist">
+                <div class="zodiac-playlist-artwork">
+                  <img src="./assets/zodiac-playlist-sagittarius.jpeg" alt="Glass Sagittarius glyph with headphones">
+                </div>
+                <div class="zodiac-playlist-caption">
+                  <span>Sagittarius</span>
+                </div>
+              </button>
+              <button class="zodiac-playlist-card" type="button" data-playlist-sign="capricorn" aria-label="Open Capricorn playlist">
+                <div class="zodiac-playlist-artwork">
+                  <img src="./assets/zodiac-playlist-capricorn.jpeg" alt="Glass Capricorn glyph with headphones">
+                </div>
+                <div class="zodiac-playlist-caption">
+                  <span>Capricorn</span>
+                </div>
+              </button>
+              <button class="zodiac-playlist-card" type="button" data-playlist-sign="aquarius" aria-label="Open Aquarius playlist">
+                <div class="zodiac-playlist-artwork">
+                  <img src="./assets/zodiac-playlist-aquarius.jpeg" alt="Glass Aquarius glyph with headphones">
+                </div>
+                <div class="zodiac-playlist-caption">
+                  <span>Aquarius</span>
+                </div>
+              </button>
+              <button class="zodiac-playlist-card" type="button" data-playlist-sign="pisces" aria-label="Open Pisces playlist">
+                <div class="zodiac-playlist-artwork">
+                  <img src="./assets/zodiac-playlist-pisces.jpeg" alt="Glass Pisces glyph with headphones">
+                </div>
+                <div class="zodiac-playlist-caption">
+                  <span>Pisces</span>
+                </div>
+              </button>
+            </div>
+            <button class="zodiac-slider-arrow next" type="button" data-zodiac-next aria-label="Next zodiac sign">
+              <span aria-hidden="true">›</span>
+            </button>
           </div>
         </section>
 
@@ -311,6 +497,175 @@
         </article>
       </section>
 
+      <section class="screen zodiac-playlist-screen" data-screen="zodiac-playlist" id="zodiac-playlist">
+        <div class="screen-heading playlist-screen-heading">
+          <p class="eyebrow">Zodiac Playlist</p>
+          <h2>Music for every sign mood.</h2>
+          <p>Each sign has its own frequency, study mood, and Oracle prompt.</p>
+        </div>
+
+        <article class="zodiac-feature-card" data-zodiac-feature>
+          <div class="zodiac-feature-artwork">
+            <img src="./assets/zodiac-playlist-aries.jpeg" alt="" data-zodiac-hero-image>
+          </div>
+          <div class="zodiac-feature-copy">
+            <div class="zodiac-feature-kicker">
+              <span data-zodiac-glyph>♈</span>
+              <small data-zodiac-meta>Fire · Cardinal</small>
+            </div>
+            <h3 data-zodiac-name>Aries</h3>
+            <p data-zodiac-theme>Bold starts, brave desire, and clean momentum.</p>
+            <div class="zodiac-pill-row" aria-label="Playlist tone">
+              <span data-zodiac-tone-one>Energy</span>
+              <span data-zodiac-tone-two>Courage</span>
+              <span data-zodiac-tone-three>Action</span>
+            </div>
+            <p class="zodiac-feature-note" data-zodiac-note>Begin before the doubt gets a vote.</p>
+            <div class="zodiac-feature-actions">
+              <a
+                class="secondary-action zodiac-listen-action"
+                href="https://soundcloud.com/prismatechai/sets/aries-soundtrack"
+                target="_blank"
+                rel="noopener noreferrer"
+                data-playlist-listen
+              >
+                Open in SoundCloud
+              </a>
+              <button class="secondary-action zodiac-ask-action" type="button" data-playlist-ask>
+                Ask With This Sign
+              </button>
+            </div>
+            <div class="zodiac-soundcloud-player">
+              <iframe
+                title="Aries SoundCloud playlist"
+                data-playlist-embed
+                allow="autoplay"
+                src="https://w.soundcloud.com/player/?url=https%3A%2F%2Fsoundcloud.com%2Fprismatechai%2Fsets%2Faries-soundtrack&amp;color=%239b6ed6&amp;auto_play=false&amp;hide_related=true&amp;show_comments=false&amp;show_user=true&amp;show_reposts=false&amp;show_teaser=false&amp;visual=true"
+              ></iframe>
+            </div>
+          </div>
+        </article>
+
+        <div class="zodiac-mini-grid" aria-label="Choose zodiac playlist">
+          <button class="zodiac-mini-card active" type="button" data-playlist-sign="aries">
+            <img src="./assets/zodiac-playlist-aries.jpeg" alt="">
+            <span>Aries</span>
+          </button>
+          <button class="zodiac-mini-card" type="button" data-playlist-sign="taurus">
+            <img src="./assets/zodiac-playlist-taurus.jpeg" alt="">
+            <span>Taurus</span>
+          </button>
+          <button class="zodiac-mini-card" type="button" data-playlist-sign="gemini">
+            <img src="./assets/zodiac-playlist-gemini.jpeg" alt="">
+            <span>Gemini</span>
+          </button>
+          <button class="zodiac-mini-card" type="button" data-playlist-sign="cancer">
+            <img src="./assets/zodiac-playlist-cancer.jpeg" alt="">
+            <span>Cancer</span>
+          </button>
+          <button class="zodiac-mini-card" type="button" data-playlist-sign="leo">
+            <img src="./assets/zodiac-playlist-leo.jpeg" alt="">
+            <span>Leo</span>
+          </button>
+          <button class="zodiac-mini-card" type="button" data-playlist-sign="virgo">
+            <img src="./assets/zodiac-playlist-virgo.jpeg" alt="">
+            <span>Virgo</span>
+          </button>
+          <button class="zodiac-mini-card" type="button" data-playlist-sign="libra">
+            <img src="./assets/zodiac-playlist-libra.jpeg" alt="">
+            <span>Libra</span>
+          </button>
+          <button class="zodiac-mini-card" type="button" data-playlist-sign="scorpio">
+            <img src="./assets/zodiac-playlist-scorpio.jpeg" alt="">
+            <span>Scorpio</span>
+          </button>
+          <button class="zodiac-mini-card" type="button" data-playlist-sign="sagittarius">
+            <img src="./assets/zodiac-playlist-sagittarius.jpeg" alt="">
+            <span>Sagittarius</span>
+          </button>
+          <button class="zodiac-mini-card" type="button" data-playlist-sign="capricorn">
+            <img src="./assets/zodiac-playlist-capricorn.jpeg" alt="">
+            <span>Capricorn</span>
+          </button>
+          <button class="zodiac-mini-card" type="button" data-playlist-sign="aquarius">
+            <img src="./assets/zodiac-playlist-aquarius.jpeg" alt="">
+            <span>Aquarius</span>
+          </button>
+          <button class="zodiac-mini-card" type="button" data-playlist-sign="pisces">
+            <img src="./assets/zodiac-playlist-pisces.jpeg" alt="">
+            <span>Pisces</span>
+          </button>
+        </div>
+      </section>
+
+      <section class="screen guided-meditation-player-screen" data-screen="guided-meditation" id="guided-meditation">
+        <div class="screen-heading playlist-screen-heading">
+          <p class="eyebrow">Guided Meditation</p>
+          <h2>Stay inside the ritual.</h2>
+          <p>Choose a meditation and listen without leaving Astromeg.</p>
+        </div>
+
+        <article class="meditation-player-card">
+          <p data-meditation-copy>Return to your center with a soft clearing practice for emotional repair and energetic release.</p>
+          <div class="meditation-player-brand has-video" aria-label="Guided meditation playlist header">
+            <video class="meditation-player-brand-video" autoplay muted loop playsinline preload="metadata" aria-hidden="true" data-meditation-brand-video>
+              <source src="./assets/guided-meditation-banner-healing.mp4" type="video/mp4" data-meditation-brand-video-source>
+            </video>
+            <img src="./assets/astromeg-oracle-pastel-logo-cropped.png" alt="">
+            <div>
+              <strong data-meditation-brand-title>Guided Meditation: Healing</strong>
+            </div>
+          </div>
+          <div class="meditation-soundcloud-player">
+            <iframe
+              title="Astromeg Oracle guided meditation playlist"
+              data-meditation-embed
+              allow="autoplay"
+              src="https://w.soundcloud.com/player/?url=https%3A%2F%2Fsoundcloud.com%2Fprismatechai%2Fsets%2Fguided-meditation-healing&amp;color=%239b6ed6&amp;auto_play=false&amp;hide_related=true&amp;show_comments=false&amp;show_user=true&amp;show_reposts=false&amp;show_teaser=false&amp;show_artwork=true&amp;visual=false"
+            ></iframe>
+          </div>
+        </article>
+
+        <div class="meditation-choice-grid" aria-label="Choose guided meditation">
+          <button class="meditation-choice-card active" type="button" data-meditation-choice="healing">
+            <span class="meditation-link-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <path d="M5 19c8.7-.7 13-5.1 14-14-8.8 1-13.4 5.4-14 14Z"></path>
+                <path d="M5 19c2.7-4.5 6-7.5 10-9.2"></path>
+              </svg>
+            </span>
+            <strong>Healing</strong>
+          </button>
+          <button class="meditation-choice-card" type="button" data-meditation-choice="wealth">
+            <span class="meditation-link-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <path d="M7.2 4.5h9.6L21 9.2 12 20 3 9.2l4.2-4.7Z"></path>
+                <path d="M3 9.2h18M8.2 9.2 12 20l3.8-10.8M7.2 4.5l1 4.7M16.8 4.5l-1 4.7"></path>
+              </svg>
+            </span>
+            <strong>Wealth</strong>
+          </button>
+          <button class="meditation-choice-card" type="button" data-meditation-choice="vipassana">
+            <span class="meditation-link-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <path d="M4.5 16.5a7.5 7.5 0 0 1 15 0"></path>
+                <path d="M7.5 16.5a4.5 4.5 0 0 1 9 0"></path>
+                <path d="M10.5 16.5a1.5 1.5 0 0 1 3 0"></path>
+              </svg>
+            </span>
+            <strong>Vipassana</strong>
+          </button>
+          <button class="meditation-choice-card" type="button" data-meditation-choice="relationship">
+            <span class="meditation-link-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <path d="M12 20.5S4.5 16 4.5 9.8c0-2.3 1.7-4 3.9-4 1.4 0 2.8.8 3.6 2 .8-1.2 2.2-2 3.6-2 2.2 0 3.9 1.7 3.9 4 0 6.2-7.5 10.7-7.5 10.7Z"></path>
+              </svg>
+            </span>
+            <strong>Relationship</strong>
+          </button>
+        </div>
+      </section>
+
       <section class="screen" data-screen="ask" id="ask">
         <div class="screen-heading compact">
           <p class="eyebrow">Ask the Oracle</p>
@@ -318,14 +673,92 @@
         </div>
 
         <div class="chat-window" aria-live="polite" data-chat-log>
-          <div class="message oracle">
+          <div class="message oracle welcome-message" data-oracle-welcome>
             <span>Astromeg Oracle</span>
-            <p>I’m here. Ask about love, money, timing, purpose, healing, or the next decision in front of you.</p>
+            <p data-oracle-welcome-copy>I’m here for you. Do you have a question in mind, or do you want me to do any of the following?</p>
+            <div class="oracle-choice-list oracle-default-choice-list" data-default-ask-choices aria-label="General reading choices">
+              <button type="button" data-reading-menu-choice data-fill-prompt="List all available readings and their purpose.">
+                <strong>✦</strong>
+                <span>List all available readings and their purpose</span>
+              </button>
+            </div>
+            <div class="oracle-choice-list" data-love-choices aria-label="Love reading choices" hidden>
+              <button type="button" data-love-choice data-fill-prompt="Show me the dynamics of my relationship with a specific person.">
+                <strong>1</strong>
+                <span>Show you the dynamics of your relationship with a specific person</span>
+              </button>
+              <button type="button" data-love-choice data-fill-prompt="Give me a timeline of events for my love life.">
+                <strong>2</strong>
+                <span>Give you a timeline of events for your lovelife</span>
+              </button>
+              <button type="button" data-love-choice data-fill-prompt="Determine my repeating patterns in love and how to resolve them.">
+                <strong>3</strong>
+                <span>Determine your repeating patterns in love and how to resolve them</span>
+              </button>
+              <button type="button" data-love-choice data-fill-prompt="Describe my lifetime partner, wife, or husband.">
+                <strong>4</strong>
+                <span>Describe your lifetime partner/wife/husband</span>
+              </button>
+            </div>
+            <div class="oracle-choice-list" data-money-choices aria-label="Money and career reading choices" hidden>
+              <button type="button" data-money-choice data-fill-prompt="Analyze my wealth potential.">
+                <strong>1</strong>
+                <span>Analyze your wealth potential</span>
+              </button>
+              <button type="button" data-money-choice data-fill-prompt="Show me the best path to success.">
+                <strong>2</strong>
+                <span>Show you the best path to success</span>
+              </button>
+              <button type="button" data-money-choice data-fill-prompt="Give me a 90-day action plan for my specific goal.">
+                <strong>3</strong>
+                <span>Give you a 90-day action plan for your specific goal</span>
+              </button>
+              <button type="button" data-money-choice data-fill-prompt="Show me my money mindset and what is blocking my wealth.">
+                <strong>4</strong>
+                <span>Your money mindset and what is blocking your wealth</span>
+              </button>
+            </div>
+            <div class="oracle-choice-list" data-timing-choices aria-label="Timing window reading choices" hidden>
+              <button type="button" data-timing-choice data-fill-prompt="When will my next big earnings come in?">
+                <strong>1</strong>
+                <span>When will my next big earnings come in?</span>
+              </button>
+              <button type="button" data-timing-choice data-fill-prompt="What age will I be at the peak of my career?">
+                <strong>2</strong>
+                <span>What age will I be at the peak of my career?</span>
+              </button>
+              <button type="button" data-timing-choice data-fill-prompt="What is my current path and timeline?">
+                <strong>3</strong>
+                <span>What is my current path and timeline?</span>
+              </button>
+              <button type="button" data-timing-choice data-fill-prompt="What predictive readings are available?">
+                <strong>4</strong>
+                <span>What predictive readings are available?</span>
+              </button>
+            </div>
+            <div class="oracle-choice-list" data-karma-choices aria-label="Karma and healing reading choices" hidden>
+              <button type="button" data-karma-choice data-fill-prompt="What is the karma that Saturn brings to my life?">
+                <strong>1</strong>
+                <span>What is the karma that Saturn brings to my life?</span>
+              </button>
+              <button type="button" data-karma-choice data-fill-prompt="What is the lesson from Saturn?">
+                <strong>2</strong>
+                <span>What is the lesson from Saturn?</span>
+              </button>
+              <button type="button" data-karma-choice data-fill-prompt="What am I here to master?">
+                <strong>3</strong>
+                <span>What am I here to master?</span>
+              </button>
+              <button type="button" data-karma-choice data-fill-prompt="Please give me an in-depth inner child and wounding reading.">
+                <strong>4</strong>
+                <span>Please give me an in-depth Inner Child and Wounding reading</span>
+              </button>
+            </div>
           </div>
         </div>
 
         <form class="ask-bar" data-ask-form>
-          <input type="text" name="question" placeholder="Ask your question..." autocomplete="off" required>
+          <input type="text" name="question" placeholder="Ask your question?" autocomplete="off" required>
           <button type="submit" aria-label="Send question">✦</button>
         </form>
       </section>
@@ -337,7 +770,7 @@
           <p>Saved readings can become a private archive of timing, choices, and personal patterns.</p>
         </div>
 
-        <div class="reading-list">
+        <div class="reading-list" data-reading-list>
           <article class="reading-card">
             <span>Year-Ahead Alignment</span>
             <h3>Career, money, and visibility themes</h3>
@@ -360,25 +793,60 @@
         <div class="screen-heading">
           <p class="eyebrow">Learn Astrology</p>
           <h2>Study the stars one layer at a time.</h2>
-          <p>Choose a learning path and build your astrology language through guided lessons.</p>
+          <p>Choose your lesson level.</p>
         </div>
 
-        <div class="lesson-grid">
-          <button class="lesson-card" type="button">Natal Astrology</button>
-          <button class="lesson-card" type="button">Transits</button>
-          <button class="lesson-card" type="button">Synastry</button>
-          <button class="lesson-card" type="button">Horary</button>
-          <button class="lesson-card" type="button">Solar Returns</button>
-          <button class="lesson-card" type="button">Quiz Me</button>
+        <div class="lesson-level-list" aria-label="Choose lesson level">
+          <button class="lesson-level-button" type="button" data-lesson-level="basic">Basic</button>
+          <button class="lesson-level-button" type="button" data-lesson-level="intermediate">Intermediate</button>
+          <button class="lesson-level-button" type="button" data-lesson-level="advanced">Advanced</button>
         </div>
       </section>
 
       <section class="screen" data-screen="today-sky" id="today-sky">
         <div class="screen-heading">
           <p class="eyebrow">Today’s Sky</p>
-          <h2>Daily transit guidance is coming soon.</h2>
-          <p>Your daily Moon, transit, and current-sky guidance will appear here.</p>
+          <h2>Your daily sky signal.</h2>
+          <p>Let the app remind you when the day’s timing, Moon mood, and transit guidance are ready.</p>
         </div>
+
+        <article class="soft-card today-sky-card">
+          <div class="today-sky-orb" aria-hidden="true">
+            <span class="orbit-glyph orbit-glyph-moon">&#9790;&#65038;</span>
+            <i></i>
+            <span class="orbit-glyph orbit-glyph-mars">&#9794;&#65038;</span>
+          </div>
+          <div class="today-sky-copy">
+            <p class="eyebrow">Current Transit Weather</p>
+            <h3>Moon conjunct Mars</h3>
+            <p>Feel the heat before you act. Move with courage without rushing the emotional truth.</p>
+          </div>
+        </article>
+
+        <article class="soft-card sky-notification-card">
+          <div>
+            <p class="eyebrow">Daily Reminder</p>
+            <h3>Today’s Sky reminders</h3>
+            <p>Receive a quiet notification when your daily sky guidance is ready.</p>
+          </div>
+          <div class="notification-preference-row">
+            <span class="notification-preference-copy">
+              <strong>Daily notifications</strong>
+              <small data-today-sky-notification-label>Off</small>
+            </span>
+            <button
+              class="notification-toggle"
+              type="button"
+              role="switch"
+              aria-checked="false"
+              aria-label="Today’s Sky daily notifications"
+              data-today-sky-notification-toggle
+            >
+              <span aria-hidden="true"></span>
+            </button>
+          </div>
+          <p class="notification-status" data-today-sky-notification-status>Notifications are waiting for your permission.</p>
+        </article>
       </section>
 
       <section class="screen" data-screen="my-access" id="my-access">
@@ -407,11 +875,17 @@
           </div>
           <p class="eyebrow">Oracle Access</p>
           <h2>Choose Your Access</h2>
-          <p>Four app plans are configured for preview. Checkout is not active.</p>
-          <div class="pricing-meta" aria-label="Pricing details">
-            <span>USD</span>
-            <span aria-hidden="true">✦</span>
+          <p>Start with a 3-day trial. Checkout is handled securely through the Astromeg backend.</p>
+          <label class="pricing-email-field">
+            <span>Email for your account</span>
+            <input type="email" data-checkout-email autocomplete="email" placeholder="you@example.com">
+          </label>
+          <p class="pricing-checkout-status" data-checkout-status>Choose a plan below to begin.</p>
+          <div class="pricing-meta" aria-label="Payment options">
             <span>PayPal</span>
+            <span class="pricing-payment-note">Accepts all credit/debit cards & Apple Pay</span>
+            <span aria-hidden="true">/</span>
+            <span>GCash</span>
           </div>
         </div>
 
@@ -452,7 +926,7 @@
                 <li>Deeper Look Harmonic</li>
               </ul>
             </div>
-            <button class="pricing-preview-button" type="button" aria-disabled="true" tabindex="-1">Checkout not active</button>
+            <button class="pricing-preview-button" type="button" data-plan-checkout="ORACLE_ESSENTIAL_MONTHLY">Start 3-Day Trial</button>
           </article>
 
           <article class="pricing-plan-card" data-plan-id="ORACLE_ESSENTIAL_ANNUAL">
@@ -496,7 +970,7 @@
                 <li>Deeper Look Harmonic</li>
               </ul>
             </div>
-            <button class="pricing-preview-button" type="button" aria-disabled="true" tabindex="-1">Checkout not active</button>
+            <button class="pricing-preview-button" type="button" data-plan-checkout="ORACLE_ESSENTIAL_ANNUAL">Start 3-Day Trial</button>
           </article>
 
           <article class="pricing-plan-card all-access" data-plan-id="ORACLE_ALL_ACCESS_MONTHLY">
@@ -520,7 +994,7 @@
                 <li>Fixed Stars</li>
               </ul>
             </div>
-            <button class="pricing-preview-button" type="button" aria-disabled="true" tabindex="-1">Checkout not active</button>
+            <button class="pricing-preview-button" type="button" data-plan-checkout="ORACLE_ALL_ACCESS_MONTHLY">Start 3-Day Trial</button>
           </article>
 
           <article class="pricing-plan-card all-access" data-plan-id="ORACLE_ALL_ACCESS_ANNUAL">
@@ -554,13 +1028,13 @@
                 <li>First access to upgrades, discounts, and exclusive Inner Circle privileges</li>
               </ul>
             </div>
-            <button class="pricing-preview-button" type="button" aria-disabled="true" tabindex="-1">Checkout not active</button>
+            <button class="pricing-preview-button" type="button" data-plan-checkout="ORACLE_ALL_ACCESS_ANNUAL">Start 3-Day Trial</button>
           </article>
         </div>
 
         <div class="pricing-footnote">
-          <span>Pricing preview only</span>
-          <p>Local currency estimates may be shown for reference. Checkout remains in USD.</p>
+          <span>3-Day Trial</span>
+          <p>Your account access and expiration date are created by the backend after checkout confirmation.</p>
         </div>
       </section>
 
@@ -578,12 +1052,69 @@
         </div>
       </section>
 
+      <section class="screen" data-screen="journal" id="journal">
+        <div class="screen-heading journal-heading">
+          <p class="eyebrow">Journal</p>
+          <h2>Your private moon log.</h2>
+          <p>Track what you feel, notice, release, and receive as the sky moves.</p>
+        </div>
+
+        <section class="journal-sky-grid" aria-label="Moon phase and significant transit">
+          <article class="journal-sky-card moon-phase-card">
+            <span class="journal-sky-glyph" aria-hidden="true">☾</span>
+            <div>
+              <p class="eyebrow">Moon Phase</p>
+              <h3 data-journal-moon-phase>Loading moon phase</h3>
+              <p data-journal-moon-copy>Today’s lunar rhythm will appear here.</p>
+            </div>
+          </article>
+          <article class="journal-sky-card transit-card">
+            <span class="journal-sky-glyph" aria-hidden="true">✦</span>
+            <div>
+              <p class="eyebrow">Significant Transit</p>
+              <h3 data-journal-transit-title>Current activation</h3>
+              <p data-journal-transit-copy>Today’s transit focus will appear here.</p>
+            </div>
+          </article>
+        </section>
+
+        <form class="soft-card journal-entry-card" data-journal-form>
+          <label>
+            <span>Journal title</span>
+            <input type="text" name="journalTitle" placeholder="What are you noticing today?" required>
+          </label>
+          <label>
+            <span>Notes</span>
+            <textarea name="journalBody" placeholder="Write your moon notes, dreams, signs, feelings, or transit reflections." required></textarea>
+          </label>
+          <button class="primary-action" type="submit">Save Journal Entry</button>
+        </form>
+
+        <section class="journal-entry-list" data-journal-entry-list aria-label="Saved journal entries"></section>
+      </section>
+
       <section class="screen" data-screen="theme" id="theme">
         <div class="screen-heading">
           <p class="eyebrow">Theme</p>
-          <h2>Your theme controls will live here.</h2>
-          <p>The sun icon now opens Oracle Menu. Light and dark mode can connect here later.</p>
+          <h2>Choose your Oracle mood.</h2>
+          <p>Preview the dark version on the Home page. If it feels too heavy, we can remove it.</p>
         </div>
+
+        <article class="soft-card theme-preview-card">
+          <div class="theme-choice-grid" aria-label="Choose theme">
+            <button class="theme-choice-button" type="button" data-theme-choice="light" aria-pressed="true">
+              <span class="theme-mini-preview light-preview" aria-hidden="true"></span>
+              <strong>Light</strong>
+              <small>Pastel glass</small>
+            </button>
+            <button class="theme-choice-button" type="button" data-theme-choice="dark" aria-pressed="false">
+              <span class="theme-mini-preview dark-preview" aria-hidden="true"></span>
+              <strong>Dark Demo</strong>
+              <small>Night oracle</small>
+            </button>
+          </div>
+          <button class="primary-action" type="button" data-go="home">Preview Home</button>
+        </article>
       </section>
 
       <section class="screen" data-screen="contact" id="contact">
@@ -597,32 +1128,99 @@
       <section class="screen" data-screen="my-chart" id="my-chart">
         <div class="screen-heading">
           <p class="eyebrow">My Chart</p>
-          <h2>Your saved chart foundation.</h2>
-          <p>Birth data, access, saved guidance, and account settings can be managed here.</p>
+          <h2>Your chart vault.</h2>
+          <p>Birth details, natal placements, aspects, chart balance, and saved people.</p>
         </div>
 
-        <div class="profile-stack">
-          <article class="soft-card profile-card">
-            <span>Access Plan</span>
-            <strong data-access-state>Preview active</strong>
-            <p>Fixed-period private Oracle access.</p>
-          </article>
-          <article class="soft-card profile-card">
-            <span>Birth Profile</span>
-            <strong data-birth-summary>Not saved yet</strong>
-            <p>Your chart foundation stays connected to readings.</p>
-          </article>
-          <article class="soft-card profile-card">
-            <span>Saved Readings</span>
-            <strong>Guidance library</strong>
-            <p>Your saved Oracle readings will appear here.</p>
-          </article>
-          <article class="soft-card profile-card">
-            <span>Account Settings</span>
-            <strong>Private by design</strong>
-            <p>Access, privacy, and app settings can live here.</p>
-          </article>
-        </div>
+        <form class="soft-card chart-profile-card" data-chart-profile-form>
+          <div class="chart-card-heading">
+            <div>
+              <p class="eyebrow">Birth Details</p>
+              <h3 data-chart-client-name>Your Name</h3>
+              <p data-birth-summary>Not saved yet</p>
+            </div>
+            <span class="chart-type-pill" data-chart-sect-pill>Day Chart</span>
+          </div>
+          <div class="chart-detail-grid">
+            <label>
+              <span>Name</span>
+              <input type="text" name="name" placeholder="Your name" data-profile-name>
+            </label>
+            <label>
+              <span>Birth date</span>
+              <input type="date" name="birthDate" data-profile-birth-date>
+            </label>
+            <label>
+              <span>Birth time</span>
+              <input type="time" name="birthTime" data-profile-birth-time>
+            </label>
+            <label>
+              <span>Birth city</span>
+              <input type="text" name="birthCity" placeholder="City" data-profile-birth-city>
+            </label>
+            <label>
+              <span>Birth country</span>
+              <input type="text" name="birthCountry" placeholder="Country" data-profile-birth-country>
+            </label>
+          </div>
+          <button class="chart-save-button" type="submit">Save Chart Details</button>
+        </form>
+
+        <section class="soft-card chart-vault-card chart-section placements-card">
+          <div class="chart-section-title">
+            <div>
+              <p class="eyebrow">Natal Placements</p>
+              <h3>Planets, signs, houses, degrees</h3>
+            </div>
+            <span class="chart-section-count" data-placement-count>14</span>
+          </div>
+          <div class="placement-list" data-placement-list></div>
+        </section>
+
+        <section class="soft-card chart-vault-card chart-section">
+          <div class="chart-section-title">
+            <div>
+              <p class="eyebrow">Aspect List</p>
+              <h3>Your major natal patterns</h3>
+            </div>
+            <span class="chart-section-count" data-aspect-count>6</span>
+          </div>
+          <div class="aspect-list" data-aspect-list></div>
+        </section>
+
+        <section class="soft-card chart-vault-card chart-section">
+          <div class="chart-section-title">
+            <div>
+              <p class="eyebrow">Chart Balance</p>
+              <h3>Elements, modality, sect</h3>
+            </div>
+            <span class="chart-section-count">Core</span>
+          </div>
+          <div class="balance-grid" data-chart-balance></div>
+        </section>
+
+        <section class="soft-card chart-vault-card chart-section saved-people-section">
+          <div class="chart-section-title">
+            <div>
+              <p class="eyebrow">Profiles</p>
+              <h3>Saved chart profiles</h3>
+            </div>
+            <button class="add-new-chart-button" type="button" data-open-person-dialog>Add New Chart</button>
+          </div>
+          <div class="saved-people-list" data-saved-people-list></div>
+        </section>
+
+        <section class="soft-card chart-vault-card chart-section chart-saved-readings-section">
+          <div class="chart-section-title">
+            <div>
+              <p class="eyebrow">Guidance Library</p>
+              <h3>Saved Readings</h3>
+            </div>
+            <button class="add-new-chart-button" type="button" data-go="readings">View All</button>
+          </div>
+          <div class="chart-saved-reading-list" data-chart-saved-reading-list></div>
+          <p class="chart-saved-reading-count" data-chart-saved-reading-count>0 saved readings</p>
+        </section>
       </section>
 
       <dialog class="daily-dialog" data-daily-dialog aria-labelledby="daily-dialog-title">
@@ -643,6 +1241,170 @@
         </div>
       </dialog>
 
+      <dialog class="lesson-dialog" data-lesson-dialog aria-labelledby="lesson-dialog-title">
+        <div class="lesson-dialog-inner">
+          <button class="lesson-dialog-close" type="button" data-lesson-dialog-close aria-label="Close lesson">×</button>
+          <p class="eyebrow">Learn Astrology</p>
+          <div class="lesson-dialog-heading">
+            <span data-lesson-dialog-level>Basic</span>
+            <h2 id="lesson-dialog-title" data-lesson-dialog-title>Basic Lesson</h2>
+            <p data-lesson-dialog-body>Your lesson is ready.</p>
+          </div>
+          <button class="primary-action lesson-dialog-begin" type="button" data-begin-lesson>Begin My Lesson</button>
+        </div>
+      </dialog>
+
+      <dialog class="save-reading-dialog" data-save-reading-dialog aria-labelledby="save-reading-title">
+        <form class="save-reading-dialog-inner" data-save-reading-form>
+          <button class="save-reading-dialog-close" type="button" data-save-reading-close aria-label="Close save reading">×</button>
+          <p class="eyebrow">Save Reading</p>
+          <div class="save-reading-heading">
+            <h2 id="save-reading-title">Add this to your library.</h2>
+            <p data-save-reading-preview>Your Oracle reading will be stored privately in this preview.</p>
+          </div>
+          <label>
+            <span>Category</span>
+            <select name="category" data-save-reading-category>
+              <option value="Year-Ahead Alignment">Year-Ahead Alignment</option>
+              <option value="Relationship Pattern">Relationship Pattern</option>
+              <option value="Timing Window">Timing Window</option>
+              <option value="__custom__">Create a new category</option>
+            </select>
+          </label>
+          <label data-custom-category-wrap hidden>
+            <span>New category name</span>
+            <input type="text" name="customCategory" data-custom-category-input placeholder="Example: Soul Work">
+          </label>
+          <button class="primary-action save-reading-submit" type="submit">Save Reading</button>
+        </form>
+      </dialog>
+
+      <dialog class="unlock-reading-dialog" data-unlock-reading-dialog aria-labelledby="unlock-reading-title">
+        <article class="unlock-reading-dialog-inner">
+          <button
+            class="unlock-reading-dialog-close"
+            type="button"
+            data-unlock-reading-close
+            aria-label="Close unlock reading"
+          >×</button>
+          <p class="eyebrow">Unlock Reading</p>
+          <header class="unlock-reading-heading">
+            <span class="unlock-reading-glyph" aria-hidden="true">✦</span>
+            <div>
+              <small data-unlock-reading-required-access>Oracle All Access</small>
+              <h2 id="unlock-reading-title" data-unlock-reading-title>Unlock this reading.</h2>
+            </div>
+          </header>
+          <p class="unlock-reading-purpose" data-unlock-reading-purpose></p>
+          <div class="unlock-reading-access">
+            <span>Your current access</span>
+            <strong data-unlock-reading-current-access>Oracle Essential</strong>
+          </div>
+          <button class="primary-action unlock-reading-action" type="button" data-unlock-reading-action>
+            Unlock Reading
+          </button>
+          <p class="unlock-reading-note">Review the eligible plan inside the app before checkout.</p>
+          <button class="unlock-reading-cancel" type="button" data-unlock-reading-close>Maybe Later</button>
+        </article>
+      </dialog>
+
+      <dialog class="access-code-dialog" data-access-code-dialog aria-labelledby="access-code-title">
+        <form class="access-code-dialog-inner" data-access-code-form>
+          <button
+            class="access-code-dialog-close"
+            type="button"
+            data-access-code-close
+            aria-label="Close access code sign in"
+          >×</button>
+          <p class="eyebrow">Oracle Access</p>
+          <header class="access-code-heading">
+            <span class="access-code-glyph" aria-hidden="true">★</span>
+            <div>
+              <small>Inner Circle Sign In</small>
+              <h2 id="access-code-title">Enter your private code.</h2>
+            </div>
+          </header>
+          <p class="access-code-copy">
+            Use the active access code connected to your Astromeg Oracle account.
+          </p>
+          <label>
+            <span>Access code</span>
+            <input
+              type="text"
+              name="accessCode"
+              autocomplete="one-time-code"
+              autocapitalize="characters"
+              spellcheck="false"
+              placeholder="Enter your code"
+              required
+            >
+          </label>
+          <p class="signin-status" data-access-code-status aria-live="polite" hidden></p>
+          <button class="primary-action" type="submit">Activate My Oracle</button>
+        </form>
+      </dialog>
+
+      <dialog class="saved-reading-viewer" data-saved-reading-viewer aria-labelledby="saved-reading-viewer-title">
+        <article class="saved-reading-viewer-inner">
+          <button
+            class="saved-reading-viewer-close"
+            type="button"
+            data-saved-reading-viewer-close
+            aria-label="Close saved reading"
+          >×</button>
+          <p class="eyebrow" data-saved-reading-viewer-category>Saved Reading</p>
+          <header class="saved-reading-viewer-heading">
+            <h2 id="saved-reading-viewer-title" data-saved-reading-viewer-title>Your reading</h2>
+            <p data-saved-reading-viewer-question></p>
+            <small data-saved-reading-viewer-date></small>
+          </header>
+          <div
+            class="message-reading-content saved-reading-viewer-content"
+            data-saved-reading-viewer-content
+          ></div>
+        </article>
+      </dialog>
+
+      <dialog class="person-chart-dialog" data-person-chart-dialog aria-labelledby="person-chart-title">
+        <form class="person-chart-dialog-inner" data-saved-person-form>
+          <button class="person-chart-dialog-close" type="button" data-person-chart-close aria-label="Close add chart">×</button>
+          <p class="eyebrow">Add New Chart</p>
+          <div class="person-chart-heading">
+            <h2 id="person-chart-title">Save a profile.</h2>
+            <p>Keep this birth data ready for relationship, family, client, or timing readings.</p>
+          </div>
+          <div class="chart-detail-grid">
+            <label>
+              <span>Name</span>
+              <input type="text" name="personName" placeholder="Person's name" required>
+            </label>
+            <label>
+              <span>Connection</span>
+              <input type="text" name="personConnection" placeholder="Partner, client, family" required>
+            </label>
+            <label>
+              <span>Birth date</span>
+              <input type="date" name="personBirthDate" required>
+            </label>
+            <label>
+              <span>Birth time</span>
+              <input type="time" name="personBirthTime">
+            </label>
+            <label>
+              <span>Birth city</span>
+              <input type="text" name="personBirthCity" placeholder="City" required>
+            </label>
+            <label>
+              <span>Birth country</span>
+              <input type="text" name="personBirthCountry" placeholder="Country" required>
+            </label>
+          </div>
+          <button class="primary-action" type="submit">Save Profile</button>
+        </form>
+      </dialog>
+
+      <div class="save-toast" data-save-toast hidden>Saved to your guidance library.</div>
+
       <nav class="bottom-nav" aria-label="App navigation">
         <button type="button" data-go="home" aria-label="Home">
           <span>⌂</span>
@@ -657,13 +1419,18 @@
           <small>Learn</small>
         </button>
         <button type="button" data-go="my-chart" aria-label="My Chart">
-          <span>☀</span>
+          <span>
+            <svg class="gold-sun-icon" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+              <circle cx="12" cy="12" r="4"></circle>
+              <path d="M12 2.8v2.3M12 18.9v2.3M4.2 4.2l1.6 1.6M18.2 18.2l1.6 1.6M2.8 12h2.3M18.9 12h2.3M4.2 19.8l1.6-1.6M18.2 5.8l1.6-1.6"></path>
+            </svg>
+          </span>
           <small>My Chart</small>
         </button>
       </nav>
     </main>
 
     <script src="./pricing-config.js?v=app-all-access-annual-v2" defer></script>
-    <script src="./app.js?v=daily-tea-popup-v1" defer></script>
+    <script src="./app.js?v=reading-list-v1" defer></script>
   </body>
 </html>
