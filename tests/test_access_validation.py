@@ -39,6 +39,9 @@ class AccessCodeValidationTests(unittest.TestCase):
         self.original_env_codes = os.environ.get("ORACLE_ACCESS_CODES_JSON")
         self.original_validation_url = os.environ.get("ORACLE_ACCESS_VALIDATION_URL")
         self.original_validation_secret = os.environ.get("ORACLE_ACCESS_VALIDATION_SECRET")
+        self.original_account_validation_url = os.environ.get("ORACLE_ACCOUNT_VALIDATION_URL")
+        self.original_account_validation_secret = os.environ.get("ORACLE_ACCOUNT_VALIDATION_SECRET")
+        self.original_owner_emails = os.environ.get("ORACLE_OWNER_EMAILS")
         self.original_urlopen = app.urlopen
         self.original_access_cache_file = app.ACCESS_CACHE_FILE
         self.original_access_cache_loaded = app.ACCESS_CACHE_LOADED
@@ -72,6 +75,18 @@ class AccessCodeValidationTests(unittest.TestCase):
             os.environ.pop("ORACLE_ACCESS_VALIDATION_SECRET", None)
         else:
             os.environ["ORACLE_ACCESS_VALIDATION_SECRET"] = self.original_validation_secret
+        if self.original_account_validation_url is None:
+            os.environ.pop("ORACLE_ACCOUNT_VALIDATION_URL", None)
+        else:
+            os.environ["ORACLE_ACCOUNT_VALIDATION_URL"] = self.original_account_validation_url
+        if self.original_account_validation_secret is None:
+            os.environ.pop("ORACLE_ACCOUNT_VALIDATION_SECRET", None)
+        else:
+            os.environ["ORACLE_ACCOUNT_VALIDATION_SECRET"] = self.original_account_validation_secret
+        if self.original_owner_emails is None:
+            os.environ.pop("ORACLE_OWNER_EMAILS", None)
+        else:
+            os.environ["ORACLE_OWNER_EMAILS"] = self.original_owner_emails
 
     def rows(self):
         return [
@@ -465,6 +480,55 @@ class AccessCodeValidationTests(unittest.TestCase):
         self.assertTrue(payload["valid"])
         self.assertEqual(payload["status"], "ACTIVE")
         self.assertEqual(payload["expiration_date"], "2099-05-31")
+
+    def test_account_validator_uses_existing_access_webhook_configuration(self):
+        os.environ.pop("ORACLE_ACCOUNT_VALIDATION_URL", None)
+        os.environ.pop("ORACLE_ACCOUNT_VALIDATION_SECRET", None)
+        os.environ["ORACLE_ACCESS_VALIDATION_URL"] = "https://hook.us2.make.com/account"
+        os.environ["ORACLE_ACCESS_VALIDATION_SECRET"] = "bridge-secret"
+
+        def fake_urlopen(request, timeout):
+            self.assertEqual(request.full_url, "https://hook.us2.make.com/account")
+            self.assertEqual(request.get_method(), "POST")
+            payload = json.loads(request.data.decode("utf-8"))
+            self.assertEqual(payload["email"], "member@example.com")
+            self.assertEqual(payload["secret"], "bridge-secret")
+            return FakeUrlResponse(
+                {
+                    "valid": True,
+                    "status": "ACTIVE",
+                    "email": "member@example.com",
+                    "customer_name": "Member",
+                    "expiration_date": "2099-12-31",
+                    "permission_level": "VIP",
+                    "reading_type": "FOUNDER",
+                }
+            )
+
+        app.urlopen = fake_urlopen
+        result = app.validate_account_email("member@example.com")
+
+        self.assertTrue(result["valid"])
+        self.assertEqual(result["email"], "member@example.com")
+        self.assertEqual(result["permission_level"], "VIP")
+        self.assertEqual(result["reading_type"], "FOUNDER")
+
+    def test_active_owner_account_receives_all_readings_without_changing_expiration(self):
+        os.environ["ORACLE_OWNER_EMAILS"] = "meg.sanchez@gmail.com"
+        os.environ.pop("ORACLE_ACCOUNT_VALIDATION_URL", None)
+        os.environ.pop("ORACLE_ACCESS_VALIDATION_URL", None)
+
+        app.fetch_access_sheet_rows = lambda: [
+            ["Email", "Customer Name", "Status", "Expiration Date", "Permission Level", "Reading Type"],
+            ["meg.sanchez@gmail.com", "Astromeg", "ACTIVE", "2099-01-01", "", ""],
+        ]
+
+        result = app.validate_account_email("MEG.SANCHEZ@GMAIL.COM")
+
+        self.assertTrue(result["valid"])
+        self.assertEqual(result["expiration_date"], "2099-01-01")
+        self.assertEqual(result["permission_level"], "ALL_ACCESS_ANNUAL")
+        self.assertEqual(result["reading_type"], "ALL_ACCESS_ANNUAL")
 
 
 if __name__ == "__main__":

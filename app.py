@@ -44,6 +44,7 @@ ACCESS_VALIDATION_RETRY_DELAY_SECONDS = float(os.environ.get("ORACLE_ACCESS_VALI
 ACCOUNT_VALIDATION_TIMEOUT_SECONDS = float(os.environ.get("ORACLE_ACCOUNT_VALIDATION_TIMEOUT_SECONDS", "2.5"))
 ACCOUNT_VALIDATION_ATTEMPTS = int(os.environ.get("ORACLE_ACCOUNT_VALIDATION_ATTEMPTS", "1"))
 ACCOUNT_VALIDATION_RETRY_DELAY_SECONDS = float(os.environ.get("ORACLE_ACCOUNT_VALIDATION_RETRY_DELAY_SECONDS", "0.25"))
+DEFAULT_ORACLE_OWNER_EMAILS = "meg.sanchez@gmail.com"
 ORACLE_CHAT_TIMEOUT_SECONDS = float(os.environ.get("ORACLE_CHAT_TIMEOUT_SECONDS", "35"))
 ORACLE_CHAT_MAX_OUTPUT_TOKENS = int(os.environ.get("ORACLE_CHAT_MAX_OUTPUT_TOKENS", "2600"))
 ORACLE_CHAT_MAX_CONTEXT_CHARS = int(os.environ.get("ORACLE_CHAT_MAX_CONTEXT_CHARS", "60000"))
@@ -3377,11 +3378,17 @@ def validate_access_code_with_external_service(access_code: str) -> dict | None:
 
 
 def validate_account_email_with_external_service(email: str) -> dict | None:
-    validation_url = os.environ.get("ORACLE_ACCOUNT_VALIDATION_URL", "").strip()
+    validation_url = (
+        os.environ.get("ORACLE_ACCOUNT_VALIDATION_URL", "").strip()
+        or os.environ.get("ORACLE_ACCESS_VALIDATION_URL", "").strip()
+    )
     if not validation_url:
         return None
 
-    validation_secret = os.environ.get("ORACLE_ACCOUNT_VALIDATION_SECRET", "").strip()
+    validation_secret = (
+        os.environ.get("ORACLE_ACCOUNT_VALIDATION_SECRET", "").strip()
+        or os.environ.get("ORACLE_ACCESS_VALIDATION_SECRET", "").strip()
+    )
     request_body = json.dumps({"email": email, "secret": validation_secret}).encode("utf-8")
     request = UrlRequest(
         validation_url,
@@ -5664,8 +5671,31 @@ def demo_access_result() -> dict:
 def validate_account_email(email: str) -> dict:
     external_result = validate_account_email_with_external_service(email)
     if external_result is not None:
-        return external_result
-    return validate_account_email_from_rows(email, fetch_access_sheet_rows())
+        return apply_owner_access(email, external_result)
+    return apply_owner_access(
+        email,
+        validate_account_email_from_rows(email, fetch_access_sheet_rows()),
+    )
+
+
+def oracle_owner_emails() -> set[str]:
+    configured = os.environ.get("ORACLE_OWNER_EMAILS", DEFAULT_ORACLE_OWNER_EMAILS)
+    return {
+        normalize_email(value)
+        for value in configured.split(",")
+        if normalize_email(value)
+    }
+
+
+def apply_owner_access(email: str, result: dict) -> dict:
+    if not result.get("valid") or normalize_email(email) not in oracle_owner_emails():
+        return result
+
+    owner_result = dict(result)
+    owner_result["permission_level"] = "ALL_ACCESS_ANNUAL"
+    owner_result["reading_type"] = "ALL_ACCESS_ANNUAL"
+    owner_result["message"] = "All Access confirmed."
+    return owner_result
 
 
 def resolve_public_access_code(access_code: str) -> dict:
