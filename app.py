@@ -5375,13 +5375,15 @@ def custom_openapi():
         },
     }
     validate_access_operation = {
-        "summary": "Validate access code",
+        "summary": "Validate Astromeg Oracle access code",
         "description": (
-            "Read-only access-code validation against private Render env codes, Apps Script, published CSV, or Google Sheets API. "
-            "Requires Authorization: Bearer <ORACLE_BACKEND_API_KEY>. "
-            "Does not write to Google Sheets and does not expose the full code list."
+            "Perform one read-only validation of the exact access code submitted by the user "
+            "against Astromeg Oracle's private customer access records. Treat the returned valid "
+            "and status fields as the final result for that submission. Do not call this action "
+            "again unless the user submits a different code."
         ),
         "operationId": "validateAccessCode",
+        "x-openai-isConsequential": False,
         "security": [{"BearerAuth": []}],
         "requestBody": {
             "required": True,
@@ -5389,7 +5391,9 @@ def custom_openapi():
         },
         "responses": {
             "200": {
-                "description": "Access code validation result.",
+                "description": (
+                    "Final validation result for the submitted access code. Do not retry the same code."
+                ),
                 "content": {"application/json": {"schema": ACCESS_CODE_RESPONSE_SCHEMA}},
             },
             "401": {

@@ -637,6 +637,15 @@ class OracleChatTests(unittest.TestCase):
         self.assertIn("/chart", schema["paths"])
         self.assertIn("/validate-access-code", schema["paths"])
 
+    def test_access_validation_schema_is_read_only_and_non_repeating(self):
+        app.app.openapi_schema = None
+        operation = app.custom_openapi()["paths"]["/validate-access-code"]["post"]
+
+        self.assertEqual(operation["summary"], "Validate Astromeg Oracle access code")
+        self.assertFalse(operation["x-openai-isConsequential"])
+        self.assertIn("Do not call this action again", operation["description"])
+        self.assertNotIn("Google Sheets", operation["description"])
+
     def test_chat_endpoint_returns_demo_answer(self):
         original_request = app.request_openai_oracle_answer
         app.request_openai_oracle_answer = lambda payload, access, calculation=None: "A live demo answer."
