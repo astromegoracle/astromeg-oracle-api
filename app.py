@@ -581,8 +581,11 @@ ACCESS_CODE_REQUEST_SCHEMA = {
     "properties": {
         "access_code": {
             "type": "string",
-            "example": "AMO-VIP-30DAY-0072",
-            "description": "User-provided access code. Trim spaces before validating.",
+            "example": "CLIENT-ACCESS-CODE",
+            "description": (
+                "The exact access code entered by the user. Forward every submitted code "
+                "unchanged except for trimming surrounding spaces; never substitute a sample code."
+            ),
         },
     },
 }
