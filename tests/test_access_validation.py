@@ -406,6 +406,40 @@ class AccessCodeValidationTests(unittest.TestCase):
         self.assertEqual(payload["permission_level"], "VIP")
         self.assertEqual(payload["reading_type"], "FOUNDER")
 
+    def test_external_access_validator_retries_transient_failures(self):
+        os.environ["ORACLE_BACKEND_API_KEY"] = "secret"
+        os.environ["ORACLE_ACCESS_VALIDATION_URL"] = "https://script.google.com/macros/s/example/exec"
+        os.environ["ORACLE_ACCESS_VALIDATION_SECRET"] = "bridge-secret"
+        calls = {"count": 0}
+
+        def intermittent_urlopen(request, timeout):
+            calls["count"] += 1
+            if calls["count"] < app.ACCESS_VALIDATION_ATTEMPTS:
+                raise TimeoutError("simulated transient timeout")
+            return FakeUrlResponse(
+                {
+                    "valid": True,
+                    "status": "ACTIVE",
+                    "message": "Access confirmed.",
+                    "expiration_date": "2099-12-31",
+                    "permission_level": "VIP",
+                    "reading_type": "30DAY",
+                }
+            )
+
+        app.urlopen = intermittent_urlopen
+        response = app.validate_access_code(
+            app.AccessCodeValidationRequest(access_code="AMO-VIP-30DAY-0072"),
+            FakeRequest({"Authorization": "Bearer secret"}),
+        )
+
+        self.assertEqual(calls["count"], app.ACCESS_VALIDATION_ATTEMPTS)
+        self.assertEqual(response.status_code, 200)
+        payload = json.loads(response.body)
+        self.assertTrue(payload["valid"])
+        self.assertEqual(payload["status"], "ACTIVE")
+        self.assertEqual(payload["reading_type"], "30DAY")
+
     def test_recent_valid_access_code_uses_cache_when_external_validation_times_out(self):
         os.environ["ORACLE_BACKEND_API_KEY"] = "secret"
         os.environ["ORACLE_ACCESS_VALIDATION_URL"] = "https://script.google.com/macros/s/example/exec"
