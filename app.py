@@ -7798,9 +7798,22 @@ def validate_access_code(payload: AccessCodeValidationRequest, request: Request)
 
     try:
         try:
+            rows = fetch_access_sheet_rows()
+            result = validate_access_code_from_rows(payload.access_code, rows)
+            logger.info(
+                "access code direct row validation status=%s valid=%s",
+                result.get("status"),
+                result.get("valid"),
+            )
+            cache_access_response(payload.access_code, result)
+            return json_response(result)
+        except Exception as error:
+            logger.warning("direct access row validation unavailable; trying external service error=%s", error)
+
+        try:
             external_result = validate_access_code_with_external_service(payload.access_code)
         except Exception as error:
-            logger.warning("external access validation unavailable; trying row source error=%s", error)
+            logger.warning("external access validation unavailable error=%s", error)
             external_result = None
 
         if external_result is not None:
@@ -7808,11 +7821,7 @@ def validate_access_code(payload: AccessCodeValidationRequest, request: Request)
             cache_access_response(payload.access_code, external_result)
             return json_response(external_result)
 
-        rows = fetch_access_sheet_rows()
-        result = validate_access_code_from_rows(payload.access_code, rows)
-        logger.info("access code validation status=%s valid=%s", result.get("status"), result.get("valid"))
-        cache_access_response(payload.access_code, result)
-        return json_response(result)
+        raise RuntimeError("No access validation source is available.")
     except Exception as error:
         logger.exception("access code validation unavailable error=%s", error)
         cached_result = get_cached_access_response(payload.access_code, allow_stale=True)

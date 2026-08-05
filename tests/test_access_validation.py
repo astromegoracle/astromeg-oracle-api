@@ -393,6 +393,7 @@ class AccessCodeValidationTests(unittest.TestCase):
             )
 
         app.urlopen = fake_urlopen
+        app.fetch_access_sheet_rows = lambda: (_ for _ in ()).throw(RuntimeError("sheet unavailable"))
         response = app.validate_access_code(
             app.AccessCodeValidationRequest(access_code="SCRIPT-CODE"),
             FakeRequest({"Authorization": "Bearer secret"}),
@@ -428,6 +429,7 @@ class AccessCodeValidationTests(unittest.TestCase):
             )
 
         app.urlopen = intermittent_urlopen
+        app.fetch_access_sheet_rows = lambda: (_ for _ in ()).throw(RuntimeError("sheet unavailable"))
         response = app.validate_access_code(
             app.AccessCodeValidationRequest(access_code="AMO-VIP-30DAY-0072"),
             FakeRequest({"Authorization": "Bearer secret"}),
@@ -582,6 +584,27 @@ class AccessCodeValidationTests(unittest.TestCase):
         self.assertTrue(payload["valid"])
         self.assertEqual(payload["status"], "ACTIVE")
         self.assertEqual(payload["expiration_date"], "2099-05-31")
+
+    def test_direct_rows_are_used_before_external_validator(self):
+        os.environ["ORACLE_BACKEND_API_KEY"] = "secret"
+        os.environ["ORACLE_ACCESS_VALIDATION_URL"] = "https://hook.us2.make.com/access-code"
+        os.environ["ORACLE_ACCESS_VALIDATION_SECRET"] = "bridge-secret"
+
+        def external_must_not_run(request, timeout):
+            raise AssertionError("external validator should not run when direct rows are available")
+
+        app.urlopen = external_must_not_run
+        app.fetch_access_sheet_rows = self.rows
+        response = app.validate_access_code(
+            app.AccessCodeValidationRequest(access_code="FULL-CODE"),
+            FakeRequest({"Authorization": "Bearer secret"}),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = json.loads(response.body)
+        self.assertTrue(payload["valid"])
+        self.assertEqual(payload["status"], "ACTIVE")
+        self.assertEqual(payload["reading_type"], "FOUNDER")
 
     def test_account_validator_uses_dedicated_email_webhook_configuration(self):
         os.environ["ORACLE_ACCOUNT_VALIDATION_URL"] = "https://hook.us2.make.com/account"
