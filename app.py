@@ -5268,7 +5268,7 @@ app.add_middleware(
     ),
     allow_credentials=False,
     allow_methods=["POST", "OPTIONS"],
-    allow_headers=["Content-Type"],
+    allow_headers=["Content-Type", "X-Astromeg-Client"],
 )
 
 
@@ -7632,7 +7632,23 @@ def sign_in_with_access_code(payload: AccessCodeValidationRequest, request: Requ
     operation_id="chatWithAstromegOracle",
     description="Generate an Astromeg Oracle app reading after validating active access.",
 )
-def chat_with_astromeg_oracle(payload: OracleChatRequest):
+def chat_with_astromeg_oracle(payload: OracleChatRequest, request: Request):
+    if request.headers.get("X-Astromeg-Client", "").strip() != "standalone-app":
+        return json_response(
+            {
+                "success": True,
+                "status": "GPT_NATIVE_RESPONSE",
+                "answer": (
+                    "Answer the user directly inside ChatGPT using this GPT's instructions and "
+                    "knowledge. Do not call the standalone app chat endpoint. If exact chart data "
+                    "is needed, call the appropriate Swiss Ephemeris calculator action, then "
+                    "interpret the result in the Astromeg Oracle voice."
+                ),
+                "message": "No OpenAI API request was made by the backend.",
+                "model": "chatgpt-native",
+            }
+        )
+
     if not payload.question.strip():
         return json_response(
             {
